@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Expense Tracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+  <h1>💰 Personal Expense Tracker</h1>
+
+  <div class="summary-boxes">
+    <div class="summary-box">
+      <div class="amount" id="total-amount">₹0</div>
+      <div class="label">Total Spent</div>
+    </div>
+    <div class="summary-box">
+      <div class="amount" id="total-count">0</div>
+      <div class="label">Total Entries</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Add Expense</h2>
+    <div class="expense-form">
+      <input type="number" id="amount" placeholder="Amount (₹)" step="0.01">
+      <select id="category">
+        <option>Food</option>
+        <option>Travel</option>
+        <option>Bills</option>
+        <option>Entertainment</option>
+        <option>Shopping</option>
+        <option>Health</option>
+        <option>Other</option>
+      </select>
+      <input type="text" id="description" placeholder="Description (optional)">
+      <input type="date" id="date">
+      <button onclick="addExpense()">Add Expense</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Your Expenses</h2>
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr>
+      </thead>
+      <tbody id="expense-list"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
