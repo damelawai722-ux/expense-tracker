@@ -24,6 +24,26 @@ app.delete('/api/expenses/:id', (req, res) => {
   db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
+// Monthly totals for the bar chart
+app.get('/api/summary/daily', (req, res) => {
+  const rows = db.prepare(`
+    SELECT date, SUM(amount) as total
+    FROM expenses
+    GROUP BY date
+    ORDER BY date ASC
+  `).all();
+  res.json(rows);
+});
+
+// Category totals for the pie chart
+app.get('/api/summary/category', (req, res) => {
+  const rows = db.prepare(`
+    SELECT category, SUM(amount) as total
+    FROM expenses
+    GROUP BY category
+  `).all();
+  res.json(rows);
+});
 
 const PORT = 3000;
 app.listen(PORT, () => {

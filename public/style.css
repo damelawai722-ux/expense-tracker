@@ -90,3 +90,19 @@ th { color: #555; font-size: 13px; text-transform: uppercase; }
   cursor: pointer;
   font-size: 13px;
 }
+
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  width: 100%;
+}
+
+.chart-box {
+  position: relative;
+  height: 380px;
+}
+
+.charts-row canvas {
+  max-width: 100%;
+}
