@@ -17,7 +17,7 @@ Setup Instructions (Windows)
    ```
    node server.js
    ```
-Open your browser and go to:
+5. Open your browser and go to:
    ```
    http://localhost:3000
    ```
