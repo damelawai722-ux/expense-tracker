@@ -45,7 +45,7 @@ app.get('/api/summary/category', (req, res) => {
   res.json(rows);
 });
 
-const PORT = 3000;
+const PORT = process;
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
