@@ -1,3 +1,6 @@
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
 document.getElementById('date').value = new Date().toISOString().split('T')[0];
 
 let barChart, pieChart;
