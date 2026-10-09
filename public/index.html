@@ -5,69 +5,84 @@
 <title>Expense Tracker</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#8B0000">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<div class="container">
-  <h1>💰 Personal Expense Tracker</h1>
-
-  <div class="summary-boxes">
-    <div class="summary-box">
-      <div class="amount" id="total-amount">₹0</div>
-      <div class="label">Total Spent</div>
-    </div>
-    <div class="summary-box">
-      <div class="amount" id="total-count">0</div>
-      <div class="label">Total Entries</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Add Expense</h2>
-    <div class="expense-form">
-      <input type="number" id="amount" placeholder="Amount (₹)" step="0.01">
-      <select id="category">
-        <option>Food</option>
-        <option>Travel</option>
-        <option>Bills</option>
-        <option>Entertainment</option>
-        <option>Shopping</option>
-        <option>Health</option>
-        <option>Other</option>
-      </select>
-      <input type="text" id="description" placeholder="Description (optional)">
-      <input type="date" id="date">
-      <button onclick="addExpense()">Add Expense</button>
-    </div>
-  </div>
-
-<div class="card">
-  <h2>Spending Overview</h2>
-  <div class="charts-row">
-    <div class="chart-box">
-    <canvas id="barChart"></canvas>
-    </div>
-    <div class="chart-box"> 
-    <canvas id="pieChart"></canvas>
-    </div>
+<div class="topbar">
+  <div class="brand"><span class="dot"></span> Expense Tracker By Dame</div>
+  <div class="topbar-right">
+    <button id="theme-toggle" onclick="toggleTheme()">🌙</button>
+    <button class="logout-btn" onclick="logout()">Log Out</button>
   </div>
 </div>
 
-  <div class="card">
-    <h2>Your Expenses</h2>
-    <table>
-      <thead>
-        <tr><th>Date</th><th>Category</th><th>Description</th><th>Amount</th><th></th></tr>
-      </thead>
-      <tbody id="expense-list"></tbody>
-    </table>
+<div class="month-bar">
+  <button class="month-arrow" onclick="changeMonth(-1)">‹</button>
+  <div id="month-label" class="month-label">OCTOBER</div>
+  <button class="month-arrow" onclick="changeMonth(1)">›</button>
+</div>
+
+<div class="container">
+
+  <div class="card stat-card">
+    <div class="stat-label">SPENT THIS MONTH</div>
+    <div class="stat-value">₹<span id="month-total">0.00</span></div>
+    <div class="stat-sub">
+      <span id="pct-change" class="pill"></span>
+      <span class="muted">of</span>
+      <span id="budget-display" class="budget-link" onclick="editBudget()">set a budget</span>
+    </div>
+    <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
   </div>
+
+  <div class="card">
+  <div class="card-title">DAILY OUTLAY</div>
+  <div class="chart-box-small">
+    <canvas id="barChart"></canvas>
+  </div>
+  <div id="outlay-caption" class="muted small" style="margin-top:10px;"></div>
+</div>
+
+  <div class="card">
+    <div class="card-title">BY CATEGORY</div>
+    <div class="category-flex">
+      <div class="ring-wrap">
+        <canvas id="pieChart" height="180"></canvas>
+        <div class="ring-center" id="ring-center">₹0</div>
+      </div>
+      <div id="category-list" class="category-list"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title-row">
+      <div class="card-title">RECENT</div>
+      <div class="muted small">tap to delete</div>
+    </div>
+    <div id="expense-list-new"></div>
+  </div>
+
+</div>
+
+<div class="quick-add-bar">
+  <input type="number" id="amount" placeholder="₹ 0.00" step="0.01">
+  <select id="category">
+    <option>Food</option>
+    <option>Travel</option>
+    <option>Bills</option>
+    <option>Entertainment</option>
+    <option>Shopping</option>
+    <option>Health</option>
+    <option>Other</option>
+  </select>
+  <input type="text" id="description" placeholder="Note" class="note-input">
+  <input type="date" id="date">
+  <button onclick="addExpense()">Add</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="app.js"></script>
-
 <script src="app.js"></script>
 </body>
 </html>
