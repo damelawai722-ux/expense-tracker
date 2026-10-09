@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Expense Tracker</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#8B0000">
@@ -37,19 +38,38 @@
     <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
   </div>
 
-  <div class="card">
-  <div class="card-title">DAILY OUTLAY</div>
-  <div class="chart-box-small">
-    <canvas id="barChart"></canvas>
+  <div class="card add-card">
+    <div class="card-title">ADD EXPENSE</div>
+    <div class="add-form">
+      <input type="number" id="amount" placeholder="₹ 0.00" step="0.01" inputmode="decimal">
+      <select id="category">
+        <option>Food</option>
+        <option>Travel</option>
+        <option>Bills</option>
+        <option>Entertainment</option>
+        <option>Shopping</option>
+        <option>Health</option>
+        <option>Other</option>
+      </select>
+      <input type="text" id="description" placeholder="Note (optional)" class="note-input">
+      <input type="date" id="date">
+      <button class="add-btn" onclick="addExpense()">Add</button>
+    </div>
   </div>
-  <div id="outlay-caption" class="muted small" style="margin-top:10px;"></div>
-</div>
+
+  <div class="card span-2">
+    <div class="card-title">DAILY OUTLAY</div>
+    <div class="chart-box-small">
+      <canvas id="barChart"></canvas>
+    </div>
+    <div id="outlay-caption" class="muted small" style="margin-top:10px;"></div>
+  </div>
 
   <div class="card">
     <div class="card-title">BY CATEGORY</div>
     <div class="category-flex">
       <div class="ring-wrap">
-        <canvas id="pieChart" height="180"></canvas>
+        <canvas id="pieChart"></canvas>
         <div class="ring-center" id="ring-center">₹0</div>
       </div>
       <div id="category-list" class="category-list"></div>
@@ -64,22 +84,6 @@
     <div id="expense-list-new"></div>
   </div>
 
-</div>
-
-<div class="quick-add-bar">
-  <input type="number" id="amount" placeholder="₹ 0.00" step="0.01">
-  <select id="category">
-    <option>Food</option>
-    <option>Travel</option>
-    <option>Bills</option>
-    <option>Entertainment</option>
-    <option>Shopping</option>
-    <option>Health</option>
-    <option>Other</option>
-  </select>
-  <input type="text" id="description" placeholder="Note" class="note-input">
-  <input type="date" id="date">
-  <button onclick="addExpense()">Add</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>

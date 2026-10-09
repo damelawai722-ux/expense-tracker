@@ -7,6 +7,7 @@ document.getElementById('date').value = new Date().toISOString().split('T')[0];
 let barChart, pieChart;
 let allExpenses = [];
 let viewDate = new Date();
+let currentUser = '';
 
 const CATEGORY_COLORS = {
   Food: '#8B0000', Travel: '#2980b9', Bills: '#e67e22',
@@ -26,15 +27,15 @@ function toggleTheme() {
 }
 applyTheme(localStorage.getItem('theme') || 'light');
 
-// ---- Budget ----
+// ---- Budget (stored per user) ----
 function getBudget() {
-  return parseFloat(localStorage.getItem('budget') || '0');
+  return parseFloat(localStorage.getItem('budget_' + currentUser) || '0');
 }
 function editBudget() {
   const current = getBudget();
   const val = prompt('Set your monthly budget (₹):', current || '');
   if (val !== null && !isNaN(parseFloat(val))) {
-    localStorage.setItem('budget', parseFloat(val));
+    localStorage.setItem('budget_' + currentUser, parseFloat(val));
     renderAll();
   }
 }
@@ -43,11 +44,16 @@ function editBudget() {
 async function checkAuth() {
   const res = await fetch('/api/me');
   const data = await res.json();
-  if (!data.loggedIn) window.location.href = '/';
+  if (!data.loggedIn) {
+    window.location.href = '/login.html';
+    return false;
+  }
+  currentUser = data.username;
+  return true;
 }
 async function logout() {
   await fetch('/api/logout', { method: 'POST' });
-  window.location.href = '/';
+  window.location.href = '/login.html';
 }
 
 // ---- Month navigation ----
@@ -91,6 +97,10 @@ async function deleteExpense(id) {
 
 async function loadAllExpenses() {
   const res = await fetch('/api/expenses');
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    return;
+  }
   allExpenses = await res.json();
   renderAll();
 }
@@ -257,5 +267,6 @@ function renderPieChart(monthExpenses, monthTotal) {
   });
 }
 
-checkAuth();
-loadAllExpenses();
+checkAuth().then(ok => {
+  if (ok) loadAllExpenses();
+});
