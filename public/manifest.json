@@ -1,6 +1,8 @@
 {
   "name": "Personal Expense Tracker",
   "short_name": "ExpenseTracker",
+  "description": "Track your personal expenses by month, category and day.",
+"id": "/",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f6f8",
