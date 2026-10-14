@@ -18,7 +18,7 @@ const MONTH_NAMES = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','A
 // ---- Theme toggle ----
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+  document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀' : '🌙';
   localStorage.setItem('theme', theme);
 }
 function toggleTheme() {
@@ -37,6 +37,56 @@ function editBudget() {
   if (val !== null && !isNaN(parseFloat(val))) {
     localStorage.setItem('budget_' + currentUser, parseFloat(val));
     renderAll();
+  }
+}
+
+// ---- Budget status: warnings + exceeded alerts ----
+// Thresholds: 75% = heads-up, 90% = almost at limit, 100%+ = exceeded
+function updateBudgetStatus(spent, budget) {
+  const budgetDisplay = document.getElementById('budget-display');
+  const fill = document.getElementById('progress-fill');
+
+  // create the alert box once, right under the progress bar
+  let box = document.getElementById('budget-alert');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'budget-alert';
+    fill.parentElement.insertAdjacentElement('afterend', box);
+  }
+  box.className = 'budget-alert';
+  box.hidden = true;
+  fill.classList.remove('warn', 'high', 'danger');
+
+  if (!(budget > 0)) {
+    budgetDisplay.textContent = 'set a budget';
+    fill.style.width = '0%';
+    return;
+  }
+
+  const pct = (spent / budget) * 100;
+  budgetDisplay.textContent = '₹' + budget.toFixed(2) + ' budget · ' + Math.round(pct) + '% used';
+  fill.style.width = Math.min(pct, 100) + '%';
+
+  let level = '', msg = '';
+  if (spent > budget) {
+    level = 'danger';
+    msg = `🚨 Over budget by ₹${(spent - budget).toFixed(2)} (${(pct - 100).toFixed(1)}% over your limit).`;
+  } else if (pct >= 100) {
+    level = 'danger';
+    msg = '🚨 You have used 100% of your budget. Any more spending puts you over.';
+  } else if (pct >= 90) {
+    level = 'high';
+    msg = `⚠ Almost at your limit: ${pct.toFixed(0)}% used, only ₹${(budget - spent).toFixed(2)} left.`;
+  } else if (pct >= 75) {
+    level = 'warn';
+    msg = `⚠ Heads up: ${pct.toFixed(0)}% of your budget is used. ₹${(budget - spent).toFixed(2)} remaining.`;
+  }
+
+  if (level) {
+    fill.classList.add(level);
+    box.classList.add(level);
+    box.textContent = msg;
+    box.hidden = false;
   }
 }
 
@@ -132,16 +182,7 @@ function renderAll() {
     pctEl.textContent = monthTotal > 0 ? 'new spending' : 'nothing recorded yet';
   }
 
-  const budget = getBudget();
-  const budgetDisplay = document.getElementById('budget-display');
-  const fill = document.getElementById('progress-fill');
-  if (budget > 0) {
-    budgetDisplay.textContent = '₹' + budget.toFixed(2) + ' budget';
-    fill.style.width = Math.min((monthTotal / budget) * 100, 100) + '%';
-  } else {
-    budgetDisplay.textContent = 'set a budget';
-    fill.style.width = '0%';
-  }
+  updateBudgetStatus(monthTotal, getBudget());
 
   renderRecentList(monthExpenses);
   renderBarChart(year, month, monthExpenses);
@@ -270,36 +311,3 @@ function renderPieChart(monthExpenses, monthTotal) {
 checkAuth().then(ok => {
   if (ok) loadAllExpenses();
 });
-
-function updateBudgetAlert(spent, budget) {
-  const box = document.getElementById('budget-alert');
-  const bar = document.getElementById('budget-bar'); // your progress bar fill
-  bar.className = '';
-  box.className = 'budget-alert';
-
-  if (!budget || budget <= 0) { box.hidden = true; return; }
-
-  const pct = (spent / budget) * 100;
-  bar.style.width = Math.min(pct, 100) + '%';
-
-  let level = '', msg = '';
-  if (pct > 100) {
-    level = 'danger';
-    msg = `🚨 Over budget by ₹${(spent - budget).toFixed(2)} (${(pct - 100).toFixed(1)}% over). You've spent ${pct.toFixed(0)}% of your budget.`;
-  } else if (pct === 100) {
-    level = 'danger';
-    msg = `🚨 You've used 100% of your budget. Any more spending puts you over.`;
-  } else if (pct >= 90) {
-    level = 'high';
-    msg = `⚠️ Almost at your limit: ${pct.toFixed(0)}% used, only ₹${(budget - spent).toFixed(2)} left.`;
-  } else if (pct >= 75) {
-    level = 'warn';
-    msg = `⚠️ Heads up: ${pct.toFixed(0)}% of your budget is used. ₹${(budget - spent).toFixed(2)} remaining.`;
-  }
-
-  if (!level) { box.hidden = true; return; }
-  bar.classList.add(level);
-  box.classList.add(level);
-  box.textContent = msg;
-  box.hidden = false;
-}
