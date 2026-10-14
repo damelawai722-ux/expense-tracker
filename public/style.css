@@ -381,3 +381,9 @@ body {
 #progress-fill.warn   { background:#f59e0b; }
 #progress-fill.high   { background:#f97316; }
 #progress-fill.danger { background:#dc2626; }
+
+.scan-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.scan-btn { padding: 8px 14px; border: 1px dashed #8B0000; background: transparent;
+            color: inherit; font-family: inherit; border-radius: 8px; cursor: pointer; }
+.scan-btn:disabled { opacity: .5; cursor: wait; }
+.filled-by-scan { outline: 2px solid #e67e22; }

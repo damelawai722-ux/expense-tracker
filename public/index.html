@@ -40,6 +40,13 @@
 
   <div class="card add-card">
     <div class="card-title">ADD EXPENSE</div>
+
+    <div class="scan-row">
+      <input type="file" id="receiptInput" accept="image/*" capture="environment" hidden>
+      <button type="button" class="scan-btn" id="scanBtn">📷 Scan receipt</button>
+      <span id="scanStatus" class="muted small"></span>
+    </div>
+
     <div class="add-form">
       <input type="number" id="amount" placeholder="₹ 0.00" step="0.01" inputmode="decimal">
       <select id="category">
@@ -87,6 +94,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
