@@ -320,22 +320,129 @@ function renderPieChart(monthExpenses, monthTotal) {
 // ================= Receipt scanning =================
 const SCAN_DEBUG = true; // true = log the raw OCR text to the console
 
-
-
 const scanBtn = document.getElementById('scanBtn');
 const receiptInput = document.getElementById('receiptInput');
 const scanStatus = document.getElementById('scanStatus');
 
 scanBtn.addEventListener('click', () => receiptInput.click());
 
+// ---------- Step 1: clean up the photo so the OCR can read it ----------
+
+// Load the photo with its phone-camera rotation applied
+async function loadBitmap(file) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch (e) { /* fall through to <img> */ }
+  }
+  return await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Adaptive threshold: turns the photo into crisp black text on white,
+// and copes with shadows / uneven lighting (a plain threshold does not)
+function adaptiveThreshold(gray, w, h) {
+  const W = w + 1;
+  const integral = new Uint32Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < w; x++) {
+      rowSum += gray[y * w + x];
+      integral[(y + 1) * W + (x + 1)] = integral[y * W + (x + 1)] + rowSum;
+    }
+  }
+  const half = Math.max(8, Math.floor(w / 24));
+  const out = new Uint8ClampedArray(w * h);
+  for (let y = 0; y < h; y++) {
+    const y1 = Math.max(0, y - half), y2 = Math.min(h - 1, y + half);
+    for (let x = 0; x < w; x++) {
+      const x1 = Math.max(0, x - half), x2 = Math.min(w - 1, x + half);
+      const count = (x2 - x1 + 1) * (y2 - y1 + 1);
+      const sum = integral[(y2 + 1) * W + (x2 + 1)] - integral[y1 * W + (x2 + 1)]
+                - integral[(y2 + 1) * W + x1] + integral[y1 * W + x1];
+      out[y * w + x] = (gray[y * w + x] * count < sum * 0.88) ? 0 : 255;
+    }
+  }
+  return out;
+}
+
+function grayToCanvas(gray, w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  for (let i = 0; i < gray.length; i++) {
+    const v = gray[i];
+    img.data[i * 4] = v;
+    img.data[i * 4 + 1] = v;
+    img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+// Returns two versions of the photo: stretched grayscale and black/white
+async function preprocessReceipt(file) {
+  const bmp = await loadBitmap(file);
+
+  // Tesseract reads best when text is roughly 30px tall.
+  // Scale the longest side to ~2200px (upscale small photos, shrink huge ones).
+  const scale = Math.min(2200 / Math.max(bmp.width, bmp.height), 3);
+  const w = Math.round(bmp.width * scale);
+  const h = Math.round(bmp.height * scale);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bmp, 0, 0, w, h);
+
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const gray = new Uint8ClampedArray(w * h);
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i++) {
+    const g = Math.round(0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]);
+    gray[i] = g;
+    hist[g]++;
+  }
+
+  // Contrast stretch between the 2nd and 98th brightness percentile
+  const total = gray.length;
+  let lo = 0, hi = 255, acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total * 0.02) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= total * 0.02) { hi = v; break; } }
+  const range = Math.max(hi - lo, 1);
+  for (let i = 0; i < gray.length; i++) {
+    gray[i] = Math.max(0, Math.min(255, ((gray[i] - lo) * 255) / range));
+  }
+
+  return {
+    gray: grayToCanvas(gray, w, h),
+    bw: grayToCanvas(adaptiveThreshold(gray, w, h), w, h)
+  };
+}
+
+// ---------- Step 2: run the OCR (with a second try if the first fails) ----------
+
 receiptInput.addEventListener('change', async () => {
   const file = receiptInput.files[0];
   if (!file) return;
 
   scanBtn.disabled = true;
+  let worker;
   try {
-    scanStatus.textContent = 'Reading receipt…';
-    const { data } = await Tesseract.recognize(file, 'eng', {
+    scanStatus.textContent = 'Preparing image…';
+    const { gray, bw } = await preprocessReceipt(file);
+
+    worker = await Tesseract.createWorker('eng', 1, {
       logger: m => {
         if (m.status === 'recognizing text') {
           scanStatus.textContent = 'Reading… ' + Math.round(m.progress * 100) + '%';
@@ -343,20 +450,41 @@ receiptInput.addEventListener('change', async () => {
       }
     });
 
-    if (SCAN_DEBUG) console.log('--- RAW OCR TEXT ---\n' + data.text);
+    // Pass 1: black & white image, treat receipt as one block of text
+    await worker.setParameters({
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+      user_defined_dpi: '300'
+    });
+    const first = await worker.recognize(bw);
+    if (SCAN_DEBUG) console.log('--- PASS 1 RAW OCR TEXT ---\n' + first.data.text);
+    let result = parseReceipt(first.data.text);
 
-    const result = parseReceipt(data.text);
+    // Pass 2: only if no total was found - grayscale image, column layout mode
+    if (result.amount == null) {
+      scanStatus.textContent = 'Trying another way…';
+      await worker.setParameters({ tessedit_pageseg_mode: '4' });
+      const second = await worker.recognize(gray);
+      if (SCAN_DEBUG) console.log('--- PASS 2 RAW OCR TEXT ---\n' + second.data.text);
+      const r2 = parseReceipt(second.data.text);
+      if (r2.amount != null) {
+        result = { ...r2, date: r2.date || result.date, description: r2.description || result.description };
+      }
+    }
+
     if (SCAN_DEBUG) console.log('--- PARSED ---', result);
-
     fillFormFromReceipt(result);
   } catch (err) {
     console.error(err);
     scanStatus.textContent = 'Could not read the receipt. Please enter it manually.';
   } finally {
+    if (worker) { try { await worker.terminate(); } catch (e) {} }
     scanBtn.disabled = false;
     receiptInput.value = '';
   }
 });
+
+// ---------- Step 3: understand the text ----------
 
 const CATEGORY_KEYWORDS = {
   Bills: ['electric', 'electricity', 'power', 'discom', 'msedcl', 'bses', 'mseb',
@@ -390,6 +518,14 @@ function stripDates(line) {
   return out;
 }
 
+// OCR often confuses the letter O with zero when it sits next to digits ("1O0" -> "100")
+function fixDigitLookalikes(line) {
+  return line
+    .replace(/(\d)[Oo]/g, (m, d) => d + '0')
+    .replace(/(\d)[Oo]/g, (m, d) => d + '0')
+    .replace(/[Oo](\d)/g, (m, d) => '0' + d);
+}
+
 function findBestDate(lines) {
   let best = null;
   lines.forEach(line => {
@@ -418,7 +554,7 @@ function findBestDate(lines) {
 }
 
 function findAmount(lines) {
-  const cleaned = lines.map(stripDates);          // dates removed, so "2020" is never an amount
+  const cleaned = lines.map(l => fixDigitLookalikes(stripDates(l))); // dates removed, so "2020" is never an amount
   const toNum = s => parseFloat(s.replace(/,/g, ''));
   const numRe = /\d[\d,]*(?:\.\d{1,2})?/g;
   const labelRe = /(grand\s*total|net\s*(payable|amount)|total|payable|amount|paid)/i;
