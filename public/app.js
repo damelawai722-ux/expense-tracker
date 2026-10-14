@@ -270,3 +270,36 @@ function renderPieChart(monthExpenses, monthTotal) {
 checkAuth().then(ok => {
   if (ok) loadAllExpenses();
 });
+
+function updateBudgetAlert(spent, budget) {
+  const box = document.getElementById('budget-alert');
+  const bar = document.getElementById('budget-bar'); // your progress bar fill
+  bar.className = '';
+  box.className = 'budget-alert';
+
+  if (!budget || budget <= 0) { box.hidden = true; return; }
+
+  const pct = (spent / budget) * 100;
+  bar.style.width = Math.min(pct, 100) + '%';
+
+  let level = '', msg = '';
+  if (pct > 100) {
+    level = 'danger';
+    msg = `🚨 Over budget by ₹${(spent - budget).toFixed(2)} (${(pct - 100).toFixed(1)}% over). You've spent ${pct.toFixed(0)}% of your budget.`;
+  } else if (pct === 100) {
+    level = 'danger';
+    msg = `🚨 You've used 100% of your budget. Any more spending puts you over.`;
+  } else if (pct >= 90) {
+    level = 'high';
+    msg = `⚠️ Almost at your limit: ${pct.toFixed(0)}% used, only ₹${(budget - spent).toFixed(2)} left.`;
+  } else if (pct >= 75) {
+    level = 'warn';
+    msg = `⚠️ Heads up: ${pct.toFixed(0)}% of your budget is used. ₹${(budget - spent).toFixed(2)} remaining.`;
+  }
+
+  if (!level) { box.hidden = true; return; }
+  bar.classList.add(level);
+  box.classList.add(level);
+  box.textContent = msg;
+  box.hidden = false;
+}
