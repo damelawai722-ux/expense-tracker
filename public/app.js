@@ -320,20 +320,7 @@ function renderPieChart(monthExpenses, monthTotal) {
 // ================= Receipt scanning =================
 const SCAN_DEBUG = true; // true = log the raw OCR text to the console
 
-const CATEGORY_KEYWORDS = {
-  Food: ['restaurant', 'cafe', 'hotel', 'bakery', 'pizza', 'burger', 'swiggy',
-         'zomato', 'canteen', 'sweets', 'mart', 'grocery', 'supermarket',
-         'kirana', 'vegetable', 'dhaba'],
-  Travel: ['petrol', 'fuel', 'diesel', 'uber', 'ola', 'taxi', 'bus', 'ticket',
-           'railway', 'irctc', 'parking', 'toll'],
-  Bills: ['electricity', 'recharge', 'broadband', 'jio', 'airtel', 'bsnl',
-          'water bill', 'gas', 'insurance'],
-  Entertainment: ['cinema', 'movie', 'pvr', 'inox', 'netflix', 'game', 'concert'],
-  Shopping: ['mall', 'fashion', 'garments', 'electronics', 'mobile', 'footwear',
-             'clothing', 'amazon', 'flipkart'],
-  Health: ['pharmacy', 'medical', 'chemist', 'clinic', 'hospital', 'medicine',
-           'diagnostic', 'dental']
-};
+
 
 const scanBtn = document.getElementById('scanBtn');
 const receiptInput = document.getElementById('receiptInput');
@@ -371,49 +358,135 @@ receiptInput.addEventListener('change', async () => {
   }
 });
 
+const CATEGORY_KEYWORDS = {
+  Bills: ['electric', 'electricity', 'power', 'discom', 'msedcl', 'bses', 'mseb',
+          'recharge', 'broadband', 'wifi', 'jio', 'airtel', 'bsnl', 'vodafone',
+          'postpaid', 'prepaid', 'dth', 'water bill', 'gas bill', 'insurance', 'utility'],
+  Food: ['restaurant', 'cafe', 'hotel', 'bakery', 'pizza', 'burger', 'swiggy',
+         'zomato', 'canteen', 'sweets', 'mart', 'grocery', 'supermarket',
+         'kirana', 'vegetable', 'dhaba'],
+  Travel: ['petrol', 'fuel', 'diesel', 'uber', 'ola', 'taxi', 'bus', 'ticket',
+           'railway', 'irctc', 'parking', 'toll'],
+  Entertainment: ['cinema', 'movie', 'pvr', 'inox', 'netflix', 'game', 'concert'],
+  Shopping: ['mall', 'fashion', 'garments', 'electronics', 'mobile', 'footwear',
+             'clothing', 'amazon', 'flipkart'],
+  Health: ['pharmacy', 'medical', 'chemist', 'clinic', 'hospital', 'medicine',
+           'diagnostic', 'dental']
+};
+
+const MONTHS = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+const pad2 = n => String(n).padStart(2, '0');
+
+// Three date styles: 21/10/2020, 21 October 2020, Oct 21, 2020
+const DATE_PATTERNS = [
+  { re: /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/g, order: 'dmy' },
+  { re: /\b(\d{1,2})(?:st|nd|rd|th)?[\s\-]+([A-Za-z]{3,9})\.?,?[\s\-]+(\d{2,4})\b/g, order: 'dMy' },
+  { re: /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/g, order: 'Mdy' }
+];
+
+function stripDates(line) {
+  let out = line;
+  DATE_PATTERNS.forEach(p => { out = out.replace(p.re, ' '); });
+  return out;
+}
+
+function findBestDate(lines) {
+  let best = null;
+  lines.forEach(line => {
+    DATE_PATTERNS.forEach(({ re, order }) => {
+      for (const m of line.matchAll(re)) {
+        let dd, mm, yy;
+        if (order === 'dmy')      { dd = +m[1]; mm = +m[2]; yy = m[3]; }
+        else if (order === 'dMy') { dd = +m[1]; mm = MONTHS[m[2].slice(0, 3).toLowerCase()]; yy = m[3]; }
+        else                      { mm = MONTHS[m[1].slice(0, 3).toLowerCase()]; dd = +m[2]; yy = m[3]; }
+
+        if (!mm || dd < 1 || dd > 31 || mm < 1 || mm > 12) continue;
+        if (yy.length === 3) continue;
+        if (yy.length === 2) yy = '20' + yy;
+
+        // prefer "paid on"/"date" lines, avoid "due date" lines
+        let score = 1;
+        if (/paid/i.test(line)) score += 3;
+        if (/date|dated|invoice/i.test(line)) score += 1;
+        if (/due|expir|valid/i.test(line)) score -= 3;
+
+        if (!best || score > best.score) best = { iso: yy + '-' + pad2(mm) + '-' + pad2(dd), score };
+      }
+    });
+  });
+  return best ? best.iso : null;
+}
+
+function findAmount(lines) {
+  const cleaned = lines.map(stripDates);          // dates removed, so "2020" is never an amount
+  const toNum = s => parseFloat(s.replace(/,/g, ''));
+  const numRe = /\d[\d,]*(?:\.\d{1,2})?/g;
+  const labelRe = /(grand\s*total|net\s*(payable|amount)|total|payable|amount|paid)/i;
+  const skipRe = /(change|tender|cash\s*(given|recd|received)|discount|saving)/i;
+  const ok = n => n > 0 && n < 10000000;
+
+  // 1) numbers on a "total"-like line, or on the line right after it
+  let cands = [];
+  cleaned.forEach((line, i) => {
+    if (!labelRe.test(line) || skipRe.test(line)) return;
+    let nums = line.match(numRe) || [];
+    if (!nums.length && cleaned[i + 1]) nums = cleaned[i + 1].match(numRe) || [];
+    nums.forEach(n => cands.push(toNum(n)));
+  });
+  cands = cands.filter(ok);
+
+  // 2) numbers written right after ₹ / Rs / INR
+  if (!cands.length) {
+    const cur = cleaned.join('\n').matchAll(/(?:₹|rs\.?|inr)\s*(\d[\d,]*(?:\.\d{1,2})?)/gi);
+    cands = [...cur].map(m => toNum(m[1])).filter(ok);
+  }
+
+  // 3) any number with two decimals
+  if (!cands.length) {
+    cands = (cleaned.join('\n').match(/\d[\d,]*\.\d{2}/g) || []).map(toNum).filter(ok);
+  }
+  return cands.length ? Math.max(...cands) : null;
+}
+
+function guessCategory(lower) {
+  let best = 'Other', bestScore = 0;
+  for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
+    let score = 0;
+    words.forEach(w => {
+      // whole-word match for short words, so "bus" doesn't match "business"
+      const re = new RegExp('\\b' + w + (w.length <= 4 ? '\\b' : ''));
+      if (re.test(lower)) score++;
+    });
+    if (score > bestScore) { best = cat; bestScore = score; }
+  }
+  return best;
+}
+
+// skip lines that look like OCR garbage (logos, stamps)
+function looksClean(line) {
+  const words = line.split(/\s+/);
+  const compact = line.replace(/\s/g, '');
+  if (compact.length < 4) return false;
+  const letters = (line.match(/[A-Za-z]/g) || []).length;
+  if (letters / compact.length < 0.7) return false;
+  if (words.some(w => /[a-z][A-Z]/.test(w))) return false;           // e.g. "WErWEEw"
+  if (words.filter(w => w.length === 1).length >= 2) return false;   // lots of lone letters
+  return words.some(w => w.length >= 4);
+}
+
+function pickDescription(lines) {
+  const line = lines.slice(0, 8).find(looksClean);
+  return line ? line.replace(/[^\w\s&.-]/g, '').slice(0, 40) : '';
+}
+
 function parseReceipt(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const lower = text.toLowerCase();
-  const toNum = s => parseFloat(s.replace(/,/g, ''));
-
-  // 1) Amount: look at "total"-like lines, ignore cash/change lines
-  const totalWords = /(grand\s*total|net\s*payable|total|payable|amount\s*due)/i;
-  const skipWords = /(change|tender|cash\s*(given|recd|received)|qty|items)/i;
-
-  let candidates = [];
-  lines.forEach(line => {
-    if (totalWords.test(line) && !skipWords.test(line)) {
-      (line.match(/\d[\d,]*(?:\.\d{1,2})?/g) || []).forEach(n => candidates.push(toNum(n)));
-    }
-  });
-  if (candidates.length === 0) {
-    // fallback: any decimal money-looking number anywhere
-    candidates = (text.match(/\d[\d,]*\.\d{2}/g) || []).map(toNum);
-  }
-  candidates = candidates.filter(n => n > 0);
-  const amount = candidates.length ? Math.max(...candidates) : null;
-
-  // 2) Date: assume DD/MM/YYYY (Indian format), validate the parts
-  let date = null;
-  const d = text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
-  if (d) {
-    let dd = parseInt(d[1], 10), mm = parseInt(d[2], 10), yy = d[3];
-    if (yy.length === 2) yy = '20' + yy;
-    if (dd >= 1 && dd <= 31 && mm >= 1 && mm <= 12) {
-      date = yy + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
-    }
-  }
-
-  // 3) Category: first keyword match, else Other
-  let category = 'Other';
-  for (const [cat, words] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (words.some(w => lower.includes(w))) { category = cat; break; }
-  }
-
-  // 4) Description: first line is usually the shop name
-  const description = lines[0] ? lines[0].replace(/[^\w\s&.-]/g, '').slice(0, 40) : '';
-
-  return { amount, date, category, description };
+  return {
+    amount: findAmount(lines),
+    date: findBestDate(lines),
+    category: guessCategory(text.toLowerCase()),
+    description: pickDescription(lines)
+  };
 }
 
 function fillFormFromReceipt(r) {
