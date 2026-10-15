@@ -201,6 +201,110 @@ app.get('/api/summary/category', requireAuth, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 initDb()
   .then(() => {
+    // =====================================================================
+//  WHAT TO DO IN server.js  (three small edits)
+// =====================================================================
+//
+//  EDIT 1 - Make this the VERY FIRST LINE of server.js:
+//
+//      require('dotenv').config();
+//
+//  EDIT 2 - Find the line  app.use(express.json());
+//           and change it to:
+//
+//      app.use(express.json({ limit: '6mb' }));
+//
+//  EDIT 3 - Copy everything BELOW this comment block and paste it
+//           just ABOVE the line that starts with  app.listen(
+//
+//  Notes:
+//   - Needs Node 18+ (it uses the built-in fetch). Check with: node -v
+//   - The key lives in .env as GEMINI_API_KEY (never put it in app.js)
+// =====================================================================
+
+
+// ---------------- PASTE FROM HERE ----------------
+
+const ALLOWED_CATEGORIES = ['Food', 'Travel', 'Bills', 'Entertainment', 'Shopping', 'Health', 'Other'];
+
+// Only logged-in users may use the scanner (protects your free AI quota).
+// A logged-out visitor's session holds nothing except the cookie settings.
+function requireLoginForScan(req, res, next) {
+  const loggedIn = req.session && Object.keys(req.session).some(k => k !== 'cookie');
+  if (loggedIn) return next();
+  res.status(401).json({ error: 'Not logged in' });
+}
+
+app.post('/api/scan-receipt', requireLoginForScan, async (req, res) => {
+  try {
+    const { image, mimeType } = req.body;
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ error: 'No image received' });
+    }
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: 'Scanner is not configured' });
+    }
+
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const prompt = `You read photos of receipts, bills and payment screenshots.
+Return ONLY a JSON object with these keys:
+- "amount": number, the final amount the customer paid or must pay (net/total due, after discounts). Use 0 if nothing is payable. No currency symbol.
+- "date": string "YYYY-MM-DD", the date of purchase or payment (not the due date). Dates on Indian receipts are day-first. Use null if not visible.
+- "category": exactly one of ${JSON.stringify(ALLOWED_CATEGORIES)}.
+- "description": short shop or biller name, max 40 characters.
+If the image is not a receipt, return {"amount": null, "date": null, "category": "Other", "description": ""}.`;
+
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': process.env.GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType || 'image/jpeg', data: image } }
+            ]
+          }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+        })
+      }
+    );
+
+    if (!r.ok) {
+      console.error('Gemini error', r.status, await r.text());
+      return res.status(502).json({ error: 'AI service error' });
+    }
+
+    const out = await r.json();
+    const text = out?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    let parsed;
+    try {
+      parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch (e) {
+      return res.status(502).json({ error: 'Could not understand AI reply' });
+    }
+
+    // Never trust the AI blindly: validate everything before sending it on
+    const amount = Number(parsed.amount);
+    res.json({
+      amount: Number.isFinite(amount) && amount > 0 && amount < 10000000
+        ? Math.round(amount * 100) / 100 : null,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(parsed.date || '') && !isNaN(Date.parse(parsed.date))
+        ? parsed.date : null,
+      category: ALLOWED_CATEGORIES.includes(parsed.category) ? parsed.category : 'Other',
+      description: String(parsed.description || '').slice(0, 40)
+    });
+  } catch (err) {
+    console.error('Scan error:', err);
+    res.status(500).json({ error: 'Scan failed' });
+  }
+});
+
+// ---------------- PASTE UNTIL HERE ----------------
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch(err => {
