@@ -235,6 +235,67 @@ function requireLoginForScan(req, res, next) {
   res.status(401).json({ error: 'Not logged in' });
 }
 
+// =====================================================================
+//  UPDATE FOR server.js  (retry when Gemini is busy)
+// =====================================================================
+//
+//  1. In server.js, find your CURRENT block that starts with
+//         app.post('/api/scan-receipt', requireLoginForScan, async (req, res) => {
+//     and ends with its closing  });
+//     DELETE that whole block (just that route).
+//
+//  2. KEEP these two things where they are (do not paste them again):
+//         const ALLOWED_CATEGORIES = [...]
+//         function requireLoginForScan(...) { ... }
+//
+//  3. Paste everything between the PASTE markers below in the place
+//     where you deleted the old route (above app.listen).
+//
+//  4. On Render > Environment set:
+//         GEMINI_MODEL = gemini-3.8-flash
+//     Optional backup model, used only if the first one keeps failing
+//     (copy a current model name from AI Studio):
+//         GEMINI_FALLBACK_MODEL = <another model name>
+// =====================================================================
+
+
+// ---------------- PASTE FROM HERE ----------------
+
+const scanSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Calls Gemini. If it says "busy" (503), "rate limited" (429) or has a
+// server hiccup (500), wait a moment and try again, then try the backup model.
+async function callGemini(models, body) {
+  let lastFailure = null;
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': process.env.GEMINI_API_KEY
+          },
+          body: JSON.stringify(body)
+        }
+      );
+      if (r.ok) return r;
+
+      const text = await r.text();
+      lastFailure = { status: r.status, model };
+      console.error('Gemini error', r.status, model, 'attempt', attempt, text.slice(0, 400));
+
+      // Only temporary problems are worth retrying
+      if (![429, 500, 503].includes(r.status)) break;
+      if (attempt < 3) await scanSleep(attempt * 1500);
+    }
+  }
+  const err = new Error('Gemini failed');
+  err.lastFailure = lastFailure;
+  throw err;
+}
+
 app.post('/api/scan-receipt', requireLoginForScan, async (req, res) => {
   try {
     const { image, mimeType } = req.body;
@@ -245,7 +306,11 @@ app.post('/api/scan-receipt', requireLoginForScan, async (req, res) => {
       return res.status(500).json({ error: 'Scanner is not configured' });
     }
 
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const models = [
+      process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+      process.env.GEMINI_FALLBACK_MODEL
+    ].filter(Boolean);
+
     const prompt = `You read photos of receipts, bills and payment screenshots.
 Return ONLY a JSON object with these keys:
 - "amount": number, the final amount the customer paid or must pay (net/total due, after discounts). Use 0 if nothing is payable. No currency symbol.
@@ -254,29 +319,19 @@ Return ONLY a JSON object with these keys:
 - "description": short shop or biller name, max 40 characters.
 If the image is not a receipt, return {"amount": null, "date": null, "category": "Other", "description": ""}.`;
 
-    const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': process.env.GEMINI_API_KEY
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType || 'image/jpeg', data: image } }
-            ]
-          }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0 }
-        })
-      }
-    );
-
-    if (!r.ok) {
-      console.error('Gemini error', r.status, await r.text());
-      return res.status(502).json({ error: 'AI service error' });
+    let r;
+    try {
+      r = await callGemini(models, {
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType || 'image/jpeg', data: image } }
+          ]
+        }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+      });
+    } catch (e) {
+      return res.status(502).json({ error: 'AI service is busy, please try again' });
     }
 
     const out = await r.json();
@@ -285,6 +340,7 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
     try {
       parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
     } catch (e) {
+      console.error('Could not parse Gemini reply:', text.slice(0, 300));
       return res.status(502).json({ error: 'Could not understand AI reply' });
     }
 
@@ -303,6 +359,8 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
     res.status(500).json({ error: 'Scan failed' });
   }
 });
+
+// ---------------- PASTE UNTIL HERE ----------------
 
 // ---------------- PASTE UNTIL HERE ----------------
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
