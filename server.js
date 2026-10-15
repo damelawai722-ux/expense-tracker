@@ -35,7 +35,7 @@ async function initDb() {
 
 const app = express();
 app.set('trust proxy', 1); // needed behind Render's proxy
-app.use(express.json());
+app.use(express.json({ limit: '6mb' }));
 
 // Sessions are stored in the database too, so users stay logged in
 app.use(session({
