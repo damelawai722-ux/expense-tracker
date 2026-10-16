@@ -363,6 +363,113 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
 // ---------------- PASTE UNTIL HERE ----------------
 
 // ---------------- PASTE UNTIL HERE ----------------
+// =====================================================================
+//  CATEGORY BUDGETS: code for server.js
+// =====================================================================
+//
+//  Paste everything between the PASTE markers just ABOVE app.listen(
+//  (anywhere after the line  const pool = new Pool(...)  and after the
+//  line  const ALLOWED_CATEGORIES = [...]  that you added for the scanner).
+//
+//  Nothing else in server.js needs to change. The table is created
+//  automatically the first time the server starts.
+// =====================================================================
+
+
+// ---------------- PASTE FROM HERE ----------------
+
+// Table: one row per (user, category) with that category's monthly limit
+pool.query(`
+  CREATE TABLE IF NOT EXISTS category_budgets (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    monthly_limit NUMERIC(12,2) NOT NULL CHECK (monthly_limit > 0),
+    UNIQUE (user_id, category)
+  )
+`).catch(err => console.error('category_budgets table error:', err));
+
+// Finds the logged-in user's numeric id in the session.
+// (Tries the usual key names; if your login stores it under another name,
+//  the log line below tells you which keys exist.)
+function budgetUserId(req) {
+  const s = req.session || {};
+  const candidates = [s.userId, s.user_id, s.uid, s.user && s.user.id, s.user];
+  const id = candidates.find(
+    v => v !== undefined && v !== null && (typeof v === 'number' || /^\d+$/.test(String(v)))
+  );
+  return id === undefined ? null : Number(id);
+}
+
+function rejectNotLoggedIn(req, res) {
+  console.error('Budget route: no user id found. Session keys:', Object.keys(req.session || {}));
+  return res.status(401).json({ error: 'Not logged in' });
+}
+
+// Read all limits:  { "Food": 3000, "Bills": 2000 }
+app.get('/api/category-budgets', async (req, res) => {
+  const uid = budgetUserId(req);
+  if (uid === null) return rejectNotLoggedIn(req, res);
+  try {
+    const { rows } = await pool.query(
+      'SELECT category, monthly_limit FROM category_budgets WHERE user_id = $1',
+      [uid]
+    );
+    const out = {};
+    rows.forEach(r => { out[r.category] = Number(r.monthly_limit); });
+    res.json(out);
+  } catch (err) {
+    console.error('Budget load error:', err);
+    res.status(500).json({ error: 'Could not load budgets' });
+  }
+});
+
+// Create or update one limit (an "upsert": insert, or update if it exists)
+app.put('/api/category-budgets/:category', async (req, res) => {
+  const uid = budgetUserId(req);
+  if (uid === null) return rejectNotLoggedIn(req, res);
+
+  const category = req.params.category;
+  const limit = Number(req.body && req.body.limit);
+  if (!ALLOWED_CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: 'Unknown category' });
+  }
+  if (!Number.isFinite(limit) || limit <= 0 || limit >= 10000000) {
+    return res.status(400).json({ error: 'Limit must be a positive amount' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO category_budgets (user_id, category, monthly_limit)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, category)
+       DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit`,
+      [uid, category, Math.round(limit * 100) / 100]
+    );
+    res.json({ category, limit: Math.round(limit * 100) / 100 });
+  } catch (err) {
+    console.error('Budget save error:', err);
+    res.status(500).json({ error: 'Could not save budget' });
+  }
+});
+
+// Remove one limit
+app.delete('/api/category-budgets/:category', async (req, res) => {
+  const uid = budgetUserId(req);
+  if (uid === null) return rejectNotLoggedIn(req, res);
+  try {
+    await pool.query(
+      'DELETE FROM category_budgets WHERE user_id = $1 AND category = $2',
+      [uid, req.params.category]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Budget delete error:', err);
+    res.status(500).json({ error: 'Could not remove budget' });
+  }
+});
+
+// ---------------- PASTE UNTIL HERE ----------------
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch(err => {

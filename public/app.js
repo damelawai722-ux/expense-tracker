@@ -15,6 +15,7 @@ let barChart, pieChart;
 let allExpenses = [];
 let viewDate = new Date();
 let currentUser = '';
+let categoryBudgets = {};   // per-category monthly limits, e.g. { Food: 3000, Bills: 2000 }
 
 const CATEGORY_COLORS = {
   Food: '#8B0000', Travel: '#2980b9', Bills: '#e67e22',
@@ -135,6 +136,9 @@ async function addExpense() {
     return;
   }
 
+  const monthKey = date.slice(0, 7);
+  const before = budgetLevelOf(category, monthKey);   // alert level before this expense
+
   await fetch('/api/expenses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -146,6 +150,12 @@ async function addExpense() {
   document.querySelectorAll('.filled-by-scan').forEach(el => el.classList.remove('filled-by-scan'));
   document.getElementById('scanStatus').textContent = '';
   await loadAllExpenses();
+
+  // warn if this expense pushed the category past a new threshold
+  const after = budgetLevelOf(category, monthKey);
+  if (after.level && LEVEL_RANK[after.level] > LEVEL_RANK[before.level]) {
+    showToast(category + ' budget: ' + after.msg, after.level);
+  }
 }
 
 async function deleteExpense(id) {
@@ -192,6 +202,7 @@ function renderAll() {
   }
 
   updateBudgetStatus(monthTotal, getBudget());
+  renderCategoryBudgets(monthExpenses);
 
   renderRecentList(monthExpenses);
   renderBarChart(year, month, monthExpenses);
@@ -595,7 +606,173 @@ function fillFormFromReceipt(r) {
     e.target.classList.remove('filled-by-scan'));
 });
 
+// =====================================================================
+//  CATEGORY BUDGETS
+//  A monthly limit per category, stored in the database (so it follows
+//  the user to any device). Alerts use the same thresholds as the
+//  overall budget: 75% heads-up, 90% almost there, 100%+ exceeded.
+// =====================================================================
+const LEVEL_RANK = { '': 0, warn: 1, high: 2, danger: 3 };
+
+function budgetState(spent, limit) {
+  if (!(limit > 0)) return { level: '', pct: 0, msg: '' };
+  const pct = (spent / limit) * 100;
+  if (spent > limit) {
+    return { level: 'danger', pct, msg: '🚨 Over by ₹' + (spent - limit).toFixed(2) };
+  }
+  if (pct >= 100) {
+    return { level: 'danger', pct, msg: '🚨 100% of the limit used' };
+  }
+  if (pct >= 90) {
+    return { level: 'high', pct, msg: '⚠ ' + pct.toFixed(0) + '% used, only ₹' + (limit - spent).toFixed(2) + ' left' };
+  }
+  if (pct >= 75) {
+    return { level: 'warn', pct, msg: '⚠ ' + pct.toFixed(0) + '% used, ₹' + (limit - spent).toFixed(2) + ' left' };
+  }
+  return { level: '', pct, msg: '' };
+}
+
+function categorySpent(category, monthStr) {
+  return allExpenses
+    .filter(e => e.category === category && e.date.slice(0, 7) === monthStr)
+    .reduce((s, e) => s + e.amount, 0);
+}
+
+function budgetLevelOf(category, monthStr) {
+  return budgetState(categorySpent(category, monthStr), categoryBudgets[category]);
+}
+
+function showToast(message, level) {
+  const t = document.createElement('div');
+  t.className = 'cb-toast ' + (level || '');
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 6000);
+}
+
+async function loadCategoryBudgets() {
+  try {
+    const res = await fetch('/api/category-budgets');
+    if (res.status === 401) {
+      window.location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) throw new Error('status ' + res.status);
+    categoryBudgets = await res.json();
+  } catch (err) {
+    console.warn('Could not load category budgets:', err);
+    categoryBudgets = {};
+  }
+}
+
+async function editCategoryBudget(category) {
+  const current = categoryBudgets[category] || '';
+  const val = prompt('Monthly limit for ' + category + ' (₹).\nLeave empty or enter 0 to remove it:', current);
+  if (val === null) return;
+
+  const num = val.trim() === '' ? 0 : Math.round(parseFloat(val) * 100) / 100;
+  if (isNaN(num) || num < 0) {
+    alert('Please enter a valid amount');
+    return;
+  }
+
+  try {
+    const url = '/api/category-budgets/' + encodeURIComponent(category);
+    const res = num === 0
+      ? await fetch(url, { method: 'DELETE' })
+      : await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: num })
+        });
+    if (res.status === 401) {
+      window.location.href = '/login.html';
+      return;
+    }
+    if (!res.ok) throw new Error('status ' + res.status);
+
+    if (num === 0) delete categoryBudgets[category];
+    else categoryBudgets[category] = num;
+    renderAll();
+  } catch (err) {
+    console.error(err);
+    alert('Could not save the limit. Please try again.');
+  }
+}
+
+// Styles for the card and the pop-up warning (works in light and dark theme)
+function injectBudgetStyles() {
+  if (document.getElementById('cb-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'cb-styles';
+  s.textContent = `
+    .cb-row { padding: 10px 0; border-top: 1px solid rgba(128,128,128,.25); cursor: pointer; }
+    .cb-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .cb-name { display: flex; align-items: center; gap: 8px; }
+    .cb-track { height: 6px; border-radius: 3px; background: rgba(128,128,128,.25); margin-top: 8px; overflow: hidden; }
+    .cb-fill { height: 100%; background: #27ae60; transition: width .3s; }
+    .cb-fill.warn { background: #e67e22; }
+    .cb-fill.high { background: #d35400; }
+    .cb-fill.danger { background: #d62828; }
+    .cb-msg { margin-top: 6px; font-size: 12px; }
+    .cb-msg.warn { color: #e67e22; }
+    .cb-msg.high { color: #d35400; }
+    .cb-msg.danger { color: #d62828; }
+    .cb-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 90vw;
+                padding: 12px 16px; border-radius: 10px; color: #fff; background: #e67e22;
+                box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 1000; font-size: 14px; }
+    .cb-toast.high { background: #d35400; }
+    .cb-toast.danger { background: #d62828; }
+  `;
+  document.head.appendChild(s);
+}
+
+// Create the card once, just above the DAILY OUTLAY card
+function ensureBudgetCard() {
+  let card = document.getElementById('cat-budget-card');
+  if (card) return card;
+  injectBudgetStyles();
+  card = document.createElement('div');
+  card.id = 'cat-budget-card';
+  card.className = 'card span-2';
+  card.addEventListener('click', e => {
+    const row = e.target.closest('.cb-row');
+    if (row) editCategoryBudget(row.dataset.cat);
+  });
+  document.getElementById('barChart').closest('.card').insertAdjacentElement('beforebegin', card);
+  return card;
+}
+
+function renderCategoryBudgets(monthExpenses) {
+  const card = ensureBudgetCard();
+  const spentBy = {};
+  monthExpenses.forEach(e => { spentBy[e.category] = (spentBy[e.category] || 0) + e.amount; });
+
+  let html = '<div class="card-title-row"><div class="card-title">CATEGORY BUDGETS</div>' +
+             '<div class="muted small">tap a category to set its limit</div></div>';
+
+  Object.keys(CATEGORY_COLORS).forEach(cat => {
+    const spent = spentBy[cat] || 0;
+    const limit = categoryBudgets[cat];
+    const st = budgetState(spent, limit);
+    html += '<div class="cb-row" data-cat="' + cat + '">' +
+      '<div class="cb-top">' +
+        '<span class="cb-name"><span class="swatch" style="background:' + CATEGORY_COLORS[cat] + '"></span>' + cat + '</span>' +
+        '<span class="cb-amt">₹' + spent.toFixed(2) + (limit > 0 ? ' / ₹' + Number(limit).toFixed(2) : ' · set limit') + '</span>' +
+      '</div>';
+    if (limit > 0) {
+      html += '<div class="cb-track"><div class="cb-fill ' + st.level + '" style="width:' + Math.min(st.pct, 100) + '%"></div></div>';
+      if (st.msg) html += '<div class="cb-msg ' + st.level + '">' + st.msg + '</div>';
+    }
+    html += '</div>';
+  });
+  card.innerHTML = html;
+}
+
 // ---- Start ----
-checkAuth().then(ok => {
-  if (ok) loadAllExpenses();
+checkAuth().then(async ok => {
+  if (ok) {
+    await loadCategoryBudgets();   // limits first, so the first draw already has them
+    await loadAllExpenses();
+  }
 });
