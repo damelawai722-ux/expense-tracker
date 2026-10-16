@@ -31,11 +31,74 @@ async function initDb() {
     )
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id)');
+
+  // One limit per (user, category)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS category_budgets (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      monthly_limit NUMERIC(12,2) NOT NULL CHECK (monthly_limit > 0),
+      UNIQUE (user_id, category)
+    )
+  `);
+
+  // One overall monthly budget per user
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      monthly_budget NUMERIC(12,2) CHECK (monthly_budget > 0)
+    )
+  `);
+}
+
+const ALLOWED_CATEGORIES = ['Food', 'Travel', 'Bills', 'Entertainment', 'Shopping', 'Health', 'Other'];
+
+// ---- Validation helpers (the server never trusts what the browser sends) ----
+function isValidDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d &&
+         y >= 2000 && y <= 2100;
+}
+
+// Returns { value } with cleaned data, or { error } with a message for the user
+function parseExpense(body) {
+  const b = body || {};
+  if (typeof b.amount !== 'number' && typeof b.amount !== 'string') {
+    return { error: 'Amount is required' };
+  }
+  const amount = Number(b.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount >= 10000000) {
+    return { error: 'Amount must be a positive number below 1,00,00,000' };
+  }
+  const category = String(b.category || '');
+  if (!ALLOWED_CATEGORIES.includes(category)) {
+    return { error: 'Unknown category' };
+  }
+  const date = String(b.date || '');
+  if (!isValidDate(date)) {
+    return { error: 'Date must be a real date (YYYY-MM-DD)' };
+  }
+  const description = String(b.description || '').trim().slice(0, 100);
+  return { value: { amount: Math.round(amount * 100) / 100, category, date, description } };
+}
+
+function parseLimit(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n >= 10000000) return null;
+  return Math.round(n * 100) / 100;
 }
 
 const app = express();
+app.disable('x-powered-by');
 app.set('trust proxy', 1); // needed behind Render's proxy
 app.use(express.json({ limit: '6mb' }));
+
+if (!process.env.SESSION_SECRET) {
+  console.warn('WARNING: SESSION_SECRET is not set. Add it in Render > Environment.');
+}
 
 // Sessions are stored in the database too, so users stay logged in
 app.use(session({
@@ -130,14 +193,13 @@ app.get('/api/me', (req, res) => {
 
 // ---- Expense routes (scoped to the logged-in user) ----
 app.post('/api/expenses', requireAuth, async (req, res) => {
-  const { amount, category, description, date } = req.body;
-  if (!amount || !category || !date) {
-    return res.status(400).json({ error: 'Amount, category, and date are required' });
-  }
+  const parsed = parseExpense(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { amount, category, description, date } = parsed.value;
   try {
     await pool.query(
       'INSERT INTO expenses (user_id, amount, category, description, date) VALUES ($1, $2, $3, $4, $5)',
-      [req.session.userId, amount, category, description || '', date]
+      [req.session.userId, amount, category, description, date]
     );
     res.json({ success: true });
   } catch (e) {
@@ -153,6 +215,28 @@ app.get('/api/expenses', requireAuth, async (req, res) => {
       [req.session.userId]
     );
     res.json(result.rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Edit an expense (only the owner can change it)
+app.put('/api/expenses/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const parsed = parseExpense(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { amount, category, description, date } = parsed.value;
+
+  try {
+    const result = await pool.query(
+      'UPDATE expenses SET amount = $1, category = $2, description = $3, date = $4 WHERE id = $5 AND user_id = $6',
+      [amount, category, description, date, id, req.session.userId]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Expense not found' });
+    res.json({ success: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
@@ -197,74 +281,164 @@ app.get('/api/summary/category', requireAuth, async (req, res) => {
   }
 });
 
-// ---- Start ----
-const PORT = process.env.PORT || 3000;
-initDb()
-  .then(() => {
-    // =====================================================================
-//  WHAT TO DO IN server.js  (three small edits)
-// =====================================================================
-//
-//  EDIT 1 - Make this the VERY FIRST LINE of server.js:
-//
-//      require('dotenv').config();
-//
-//  EDIT 2 - Find the line  app.use(express.json());
-//           and change it to:
-//
-//      app.use(express.json({ limit: '6mb' }));
-//
-//  EDIT 3 - Copy everything BELOW this comment block and paste it
-//           just ABOVE the line that starts with  app.listen(
-//
-//  Notes:
-//   - Needs Node 18+ (it uses the built-in fetch). Check with: node -v
-//   - The key lives in .env as GEMINI_API_KEY (never put it in app.js)
-// =====================================================================
-
-
-// ---------------- PASTE FROM HERE ----------------
-
-const ALLOWED_CATEGORIES = ['Food', 'Travel', 'Bills', 'Entertainment', 'Shopping', 'Health', 'Other'];
-
-// Only logged-in users may use the scanner (protects your free AI quota).
-// A logged-out visitor's session holds nothing except the cookie settings.
-function requireLoginForScan(req, res, next) {
-  const loggedIn = req.session && Object.keys(req.session).some(k => k !== 'cookie');
-  if (loggedIn) return next();
-  res.status(401).json({ error: 'Not logged in' });
+// ---- Export to CSV (all expenses, or one month with ?month=YYYY-MM) ----
+function csvCell(v) {
+  let s = String(v == null ? '' : v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stops spreadsheet "formula injection"
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-// =====================================================================
-//  UPDATE FOR server.js  (retry when Gemini is busy)
-// =====================================================================
-//
-//  1. In server.js, find your CURRENT block that starts with
-//         app.post('/api/scan-receipt', requireLoginForScan, async (req, res) => {
-//     and ends with its closing  });
-//     DELETE that whole block (just that route).
-//
-//  2. KEEP these two things where they are (do not paste them again):
-//         const ALLOWED_CATEGORIES = [...]
-//         function requireLoginForScan(...) { ... }
-//
-//  3. Paste everything between the PASTE markers below in the place
-//     where you deleted the old route (above app.listen).
-//
-//  4. On Render > Environment set:
-//         GEMINI_MODEL = gemini-3.8-flash
-//     Optional backup model, used only if the first one keeps failing
-//     (copy a current model name from AI Studio):
-//         GEMINI_FALLBACK_MODEL = <another model name>
-// =====================================================================
+app.get('/api/export.csv', requireAuth, async (req, res) => {
+  const month = String(req.query.month || '');
+  let sql = 'SELECT date, category, description, amount FROM expenses WHERE user_id = $1';
+  const params = [req.session.userId];
+  let label = 'all';
 
+  if (month) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return res.status(400).json({ error: 'Invalid month' });
+    }
+    sql += ' AND date LIKE $2';
+    params.push(month + '-%');
+    label = month;
+  }
+  sql += ' ORDER BY date ASC, id ASC';
 
-// ---------------- PASTE FROM HERE ----------------
+  try {
+    const { rows } = await pool.query(sql, params);
+    const lines = ['Date,Category,Note,Amount (INR)'];
+    rows.forEach(r => {
+      lines.push([r.date, r.category, r.description, Number(r.amount).toFixed(2)].map(csvCell).join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="expenses-' + label + '.csv"');
+    res.send('\uFEFF' + lines.join('\r\n')); // BOM so Excel reads the file as UTF-8
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
+// ---- Overall monthly budget (stored per user in the database) ----
+app.get('/api/budget', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT monthly_budget FROM user_settings WHERE user_id = $1',
+      [req.session.userId]
+    );
+    res.json({ limit: rows[0] && rows[0].monthly_budget != null ? Number(rows[0].monthly_budget) : null });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.put('/api/budget', requireAuth, async (req, res) => {
+  const limit = parseLimit(req.body && req.body.limit);
+  if (limit === null || limit <= 0) {
+    return res.status(400).json({ error: 'Budget must be a positive amount' });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO user_settings (user_id, monthly_budget) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET monthly_budget = EXCLUDED.monthly_budget`,
+      [req.session.userId, limit]
+    );
+    res.json({ limit });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/budget', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM user_settings WHERE user_id = $1', [req.session.userId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ---- Category budgets ----
+async function getCategoryBudgetMap(userId) {
+  const { rows } = await pool.query(
+    'SELECT category, monthly_limit FROM category_budgets WHERE user_id = $1',
+    [userId]
+  );
+  const out = {};
+  rows.forEach(r => { out[r.category] = Number(r.monthly_limit); });
+  return out;
+}
+
+// Read all limits:  { "Food": 3000, "Bills": 2000 }
+app.get('/api/category-budgets', requireAuth, async (req, res) => {
+  try {
+    res.json(await getCategoryBudgetMap(req.session.userId));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Save several limits at once, all-or-nothing.
+// Body: { budgets: { Food: 3000, Travel: 0 } }   (0 removes that limit)
+app.put('/api/category-budgets', requireAuth, async (req, res) => {
+  const incoming = req.body && req.body.budgets;
+  if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+  const entries = Object.entries(incoming);
+  if (entries.length === 0 || entries.length > ALLOWED_CATEGORIES.length) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  const clean = [];
+  for (const [cat, v] of entries) {
+    if (!ALLOWED_CATEGORIES.includes(cat)) return res.status(400).json({ error: 'Unknown category' });
+    const limit = parseLimit(v);
+    if (limit === null) return res.status(400).json({ error: 'Invalid amount for ' + cat });
+    clean.push([cat, limit]);
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const [cat, limit] of clean) {
+      if (limit > 0) {
+        await client.query(
+          `INSERT INTO category_budgets (user_id, category, monthly_limit) VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, category) DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit`,
+          [req.session.userId, cat, limit]
+        );
+      } else {
+        await client.query(
+          'DELETE FROM category_budgets WHERE user_id = $1 AND category = $2',
+          [req.session.userId, cat]
+        );
+      }
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Budget save error:', e);
+    client.release();
+    return res.status(500).json({ error: 'Could not save budgets' });
+  }
+  client.release();
+
+  try {
+    res.json({ budgets: await getCategoryBudgetMap(req.session.userId) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ---- AI receipt scanning (Gemini), with retries when the service is busy ----
 const scanSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Calls Gemini. If it says "busy" (503), "rate limited" (429) or has a
-// server hiccup (500), wait a moment and try again, then try the backup model.
 async function callGemini(models, body) {
   let lastFailure = null;
   for (const model of models) {
@@ -296,16 +470,20 @@ async function callGemini(models, body) {
   throw err;
 }
 
-app.post('/api/scan-receipt', requireLoginForScan, async (req, res) => {
+app.post('/api/scan-receipt', requireAuth, async (req, res) => {
   try {
-    const { image, mimeType } = req.body;
-    if (!image || typeof image !== 'string') {
-      return res.status(400).json({ error: 'No image received' });
+    const { image, mimeType } = req.body || {};
+    if (!image || typeof image !== 'string' || !/^[A-Za-z0-9+/=]+$/.test(image)) {
+      return res.status(400).json({ error: 'No valid image received' });
+    }
+    if (image.length > 5500000) {
+      return res.status(413).json({ error: 'Image is too large' });
     }
     if (!process.env.GEMINI_API_KEY) {
       return res.status(500).json({ error: 'Scanner is not configured' });
     }
 
+    const safeMime = ['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) ? mimeType : 'image/jpeg';
     const models = [
       process.env.GEMINI_MODEL || 'gemini-3.8-flash',
       process.env.GEMINI_FALLBACK_MODEL
@@ -325,7 +503,7 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
         contents: [{
           parts: [
             { text: prompt },
-            { inline_data: { mime_type: mimeType || 'image/jpeg', data: image } }
+            { inline_data: { mime_type: safeMime, data: image } }
           ]
         }],
         generationConfig: { responseMimeType: 'application/json', temperature: 0 }
@@ -349,8 +527,7 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
     res.json({
       amount: Number.isFinite(amount) && amount > 0 && amount < 10000000
         ? Math.round(amount * 100) / 100 : null,
-      date: /^\d{4}-\d{2}-\d{2}$/.test(parsed.date || '') && !isNaN(Date.parse(parsed.date))
-        ? parsed.date : null,
+      date: isValidDate(String(parsed.date || '')) ? parsed.date : null,
       category: ALLOWED_CATEGORIES.includes(parsed.category) ? parsed.category : 'Other',
       description: String(parsed.description || '').slice(0, 40)
     });
@@ -360,116 +537,18 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
   }
 });
 
-// ---------------- PASTE UNTIL HERE ----------------
-
-// ---------------- PASTE UNTIL HERE ----------------
-// =====================================================================
-//  CATEGORY BUDGETS: code for server.js
-// =====================================================================
-//
-//  Paste everything between the PASTE markers just ABOVE app.listen(
-//  (anywhere after the line  const pool = new Pool(...)  and after the
-//  line  const ALLOWED_CATEGORIES = [...]  that you added for the scanner).
-//
-//  Nothing else in server.js needs to change. The table is created
-//  automatically the first time the server starts.
-// =====================================================================
-
-
-// ---------------- PASTE FROM HERE ----------------
-
-// Table: one row per (user, category) with that category's monthly limit
-pool.query(`
-  CREATE TABLE IF NOT EXISTS category_budgets (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
-    category TEXT NOT NULL,
-    monthly_limit NUMERIC(12,2) NOT NULL CHECK (monthly_limit > 0),
-    UNIQUE (user_id, category)
-  )
-`).catch(err => console.error('category_budgets table error:', err));
-
-// Finds the logged-in user's numeric id in the session.
-// (Tries the usual key names; if your login stores it under another name,
-//  the log line below tells you which keys exist.)
-function budgetUserId(req) {
-  const s = req.session || {};
-  const candidates = [s.userId, s.user_id, s.uid, s.user && s.user.id, s.user];
-  const id = candidates.find(
-    v => v !== undefined && v !== null && (typeof v === 'number' || /^\d+$/.test(String(v)))
-  );
-  return id === undefined ? null : Number(id);
-}
-
-function rejectNotLoggedIn(req, res) {
-  console.error('Budget route: no user id found. Session keys:', Object.keys(req.session || {}));
-  return res.status(401).json({ error: 'Not logged in' });
-}
-
-// Read all limits:  { "Food": 3000, "Bills": 2000 }
-app.get('/api/category-budgets', async (req, res) => {
-  const uid = budgetUserId(req);
-  if (uid === null) return rejectNotLoggedIn(req, res);
-  try {
-    const { rows } = await pool.query(
-      'SELECT category, monthly_limit FROM category_budgets WHERE user_id = $1',
-      [uid]
-    );
-    const out = {};
-    rows.forEach(r => { out[r.category] = Number(r.monthly_limit); });
-    res.json(out);
-  } catch (err) {
-    console.error('Budget load error:', err);
-    res.status(500).json({ error: 'Could not load budgets' });
-  }
+// ---- Friendly JSON errors (too-large body, bad JSON, anything unexpected) ----
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.too.large') return res.status(413).json({ error: 'Request is too large' });
+  if (err && err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid request' });
+  console.error(err);
+  res.status(500).json({ error: 'Server error' });
 });
 
-// Create or update one limit (an "upsert": insert, or update if it exists)
-app.put('/api/category-budgets/:category', async (req, res) => {
-  const uid = budgetUserId(req);
-  if (uid === null) return rejectNotLoggedIn(req, res);
-
-  const category = req.params.category;
-  const limit = Number(req.body && req.body.limit);
-  if (!ALLOWED_CATEGORIES.includes(category)) {
-    return res.status(400).json({ error: 'Unknown category' });
-  }
-  if (!Number.isFinite(limit) || limit <= 0 || limit >= 10000000) {
-    return res.status(400).json({ error: 'Limit must be a positive amount' });
-  }
-
-  try {
-    await pool.query(
-      `INSERT INTO category_budgets (user_id, category, monthly_limit)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, category)
-       DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit`,
-      [uid, category, Math.round(limit * 100) / 100]
-    );
-    res.json({ category, limit: Math.round(limit * 100) / 100 });
-  } catch (err) {
-    console.error('Budget save error:', err);
-    res.status(500).json({ error: 'Could not save budget' });
-  }
-});
-
-// Remove one limit
-app.delete('/api/category-budgets/:category', async (req, res) => {
-  const uid = budgetUserId(req);
-  if (uid === null) return rejectNotLoggedIn(req, res);
-  try {
-    await pool.query(
-      'DELETE FROM category_budgets WHERE user_id = $1 AND category = $2',
-      [uid, req.params.category]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('Budget delete error:', err);
-    res.status(500).json({ error: 'Could not remove budget' });
-  }
-});
-
-// ---------------- PASTE UNTIL HERE ----------------
+// ---- Start ----
+const PORT = process.env.PORT || 3000;
+initDb()
+  .then(() => {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch(err => {
