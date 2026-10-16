@@ -453,22 +453,13 @@ function renderAll() {
 
   const monthExpenses = allExpenses.filter(e => e.date.slice(0, 7) === monthStr);
 
-  const prevDate = new Date(year, month - 1, 1);
-  const prevStr = monthStrOf(prevDate);
-  const prevExpenses = allExpenses.filter(e => e.date.slice(0, 7) === prevStr);
-
   const monthTotal = monthExpenses.reduce((s, e) => s + e.amount, 0);
-  const prevTotal = prevExpenses.reduce((s, e) => s + e.amount, 0);
 
   document.getElementById('month-total').textContent = monthTotal.toFixed(2);
 
+  // the "% vs previous" pill was removed; hide it if the old HTML still has it
   const pctEl = document.getElementById('pct-change');
-  if (prevTotal > 0) {
-    const pct = Math.round(((monthTotal - prevTotal) / prevTotal) * 100);
-    pctEl.textContent = (pct >= 0 ? '+' : '') + pct + '% vs previous';
-  } else {
-    pctEl.textContent = monthTotal > 0 ? 'new spending' : 'nothing recorded yet';
-  }
+  if (pctEl) pctEl.hidden = true;
 
   updateBudgetStatus(monthTotal, getBudget());
   updateToolbar(monthExpenses);
