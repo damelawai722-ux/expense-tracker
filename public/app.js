@@ -149,13 +149,33 @@ function openModal(title, opts) {
   document.body.appendChild(overlay);
 
   const onKey = ev => { if (ev.key === 'Escape') close(); };
+  let closed = false;
   function close() {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('keydown', onKey);
     overlay.remove();
+    if (opts && opts.onClose) opts.onClose();
   }
   overlay.addEventListener('mousedown', ev => { if (ev.target === overlay) close(); });
   document.addEventListener('keydown', onKey);
   return { body: panel.querySelector('.ui-body'), close };
+}
+
+// Small yes/no pop-up. Resolves true only if the OK button is pressed.
+function confirmModal(title, lines, okText) {
+  return new Promise(resolve => {
+    let answer = false;
+    const { body, close } = openModal(title, { onClose: () => resolve(answer) });
+    body.innerHTML =
+      lines.map(l => '<div style="margin-bottom:8px;font-size:14px">' + esc(l) + '</div>').join('') +
+      '<div class="ui-actions">' +
+        '<button class="ui-btn" id="cf-no">Cancel</button>' +
+        '<button class="ui-btn primary" id="cf-yes">' + esc(okText) + '</button>' +
+      '</div>';
+    body.querySelector('#cf-no').onclick = close;
+    body.querySelector('#cf-yes').onclick = () => { answer = true; close(); };
+  });
 }
 
 // ---- Budgets are per month ----
@@ -362,6 +382,29 @@ async function addExpense() {
   await ensureBudgets(monthKey);                      // that month's limits
   const before = budgetLevelOf(category, monthKey);   // alert level before this expense
   const overallBefore = overallLevelOf(monthKey);     // same for the overall monthly budget
+
+  // Would this expense push a limit over 100%? Ask first. (Cancel keeps the form as it is.)
+  const warnLines = [];
+  const mb = budgetCache[monthKey];
+  if (mb && mb.cats[category] > 0) {
+    const newSpent = categorySpent(category, monthKey) + amount;
+    if (newSpent > mb.cats[category]) {
+      warnLines.push(category + ' will be ₹' + (newSpent - mb.cats[category]).toFixed(2) +
+                     ' over its limit of ₹' + Number(mb.cats[category]).toFixed(2) + '.');
+    }
+  }
+  if (mb && mb.overall > 0) {
+    const monthSpent = allExpenses
+      .filter(e => e.date.slice(0, 7) === monthKey)
+      .reduce((t, e) => t + e.amount, 0) + amount;
+    if (monthSpent > mb.overall) {
+      warnLines.push('Your monthly budget will be ₹' + (monthSpent - mb.overall).toFixed(2) +
+                     ' over (budget ₹' + Number(mb.overall).toFixed(2) + ').');
+    }
+  }
+  if (warnLines.length && !(await confirmModal('Over budget', warnLines.concat('Add this expense anyway?'), 'Add anyway'))) {
+    return;
+  }
 
   const r = await api('/api/expenses', jsonOpts('POST', { amount, category, description, date }));
   if (!r.ok) {
