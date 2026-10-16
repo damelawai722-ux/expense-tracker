@@ -13,15 +13,39 @@ document.getElementById('date').value = todayStr();
 
 let barChart, pieChart;
 let allExpenses = [];
-let viewDate = new Date();
+let viewDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // day 1 avoids "Jan 31 + 1 month = March" bug
 let currentUser = '';
 let categoryBudgets = {};   // per-category monthly limits, e.g. { Food: 3000, Bills: 2000 }
+let monthlyBudget = 0;      // overall monthly budget (loaded from the database)
 
 const CATEGORY_COLORS = {
   Food: '#8B0000', Travel: '#2980b9', Bills: '#e67e22',
   Entertainment: '#8e44ad', Shopping: '#27ae60', Health: '#16a085', Other: '#f1c40f'
 };
 const MONTH_NAMES = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+
+// ---- Small helpers ----
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// fetch wrapper: redirects on 401, returns { ok, data } with the server's JSON
+async function api(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    return { ok: false, data: { error: 'Not logged in' } };
+  }
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* not JSON */ }
+  return { ok: res.ok, data };
+}
+const jsonOpts = (method, body) => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body)
+});
 
 // ---- Theme toggle ----
 function applyTheme(theme) {
@@ -35,17 +59,123 @@ function toggleTheme() {
 }
 applyTheme(localStorage.getItem('theme') || 'light');
 
-// ---- Budget (stored per user) ----
-function getBudget() {
-  return parseFloat(localStorage.getItem('budget_' + currentUser) || '0');
+// =====================================================================
+//  MINIMAL MODAL (used by: edit expense, category budgets, month picker, export)
+// =====================================================================
+function injectUiStyles() {
+  if (document.getElementById('ui-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'ui-styles';
+  s.textContent = `
+    .ui-toolbar { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+    .ui-btn { border: 1px solid rgba(128,128,128,.35); background: transparent; color: inherit; font: inherit;
+              font-size: 13px; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+    .ui-btn:hover { background: rgba(128,128,128,.12); }
+    .ui-btn.primary { background: #8B0000; border-color: #8B0000; color: #fff; }
+    .ui-btn.primary:hover { background: #a00000; }
+    .ui-btn.danger { color: #d62828; border-color: rgba(214,40,40,.5); }
+    .ui-badge { display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 6px; border-radius: 999px;
+                font-size: 11px; color: #fff; background: #d35400; }
+    .ui-badge.danger { background: #d62828; }
+    .ui-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center;
+                  justify-content: center; padding: 16px; z-index: 900; }
+    .ui-panel { width: 100%; max-width: 380px; max-height: 88vh; overflow-y: auto; border-radius: 16px; padding: 20px;
+                box-shadow: 0 20px 50px rgba(0,0,0,.35); border: 1px solid rgba(128,128,128,.25); }
+    .ui-panel h3 { margin: 0 0 14px; font-size: 16px; font-weight: 600; }
+    .ui-field { display: block; margin-bottom: 12px; font-size: 12px; opacity: .9; }
+    .ui-field input, .ui-field select { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 9px 10px;
+                font: inherit; font-size: 14px; color: inherit; background: transparent;
+                border: 1px solid rgba(128,128,128,.4); border-radius: 8px; }
+    .ui-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+    .ui-error { color: #d62828; font-size: 13px; min-height: 18px; margin-top: 4px; }
+    .ui-hint { font-size: 11px; margin-top: 3px; opacity: .75; }
+    .ui-hint.warn { color: #e67e22; opacity: 1; } .ui-hint.high { color: #d35400; opacity: 1; } .ui-hint.danger { color: #d62828; opacity: 1; }
+    .ui-cat-row { display: grid; grid-template-columns: 1fr 120px; gap: 10px; align-items: start; padding: 8px 0;
+                  border-top: 1px solid rgba(128,128,128,.2); }
+    .ui-cat-row:first-of-type { border-top: 0; }
+    .ui-cat-name { display: flex; align-items: center; gap: 8px; font-size: 14px; padding-top: 8px; }
+    .ui-cat-row input { width: 100%; box-sizing: border-box; padding: 8px; font: inherit; font-size: 14px; color: inherit;
+                        background: transparent; border: 1px solid rgba(128,128,128,.4); border-radius: 8px; }
+    .ui-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .ui-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+    .ui-picker-head select { flex: 1; padding: 8px; font: inherit; color: inherit; background: transparent;
+                             border: 1px solid rgba(128,128,128,.4); border-radius: 8px; text-align: center; }
+    .ui-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .ui-month { position: relative; padding: 12px 0; border-radius: 10px; border: 1px solid rgba(128,128,128,.3);
+                background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+    .ui-month:hover { background: rgba(128,128,128,.14); }
+    .ui-month.current { background: #8B0000; border-color: #8B0000; color: #fff; }
+    .ui-month.has::after { content: ''; position: absolute; bottom: 5px; left: 50%; width: 4px; height: 4px; margin-left: -2px;
+                           border-radius: 50%; background: currentColor; opacity: .7; }
+    .ui-menu-item { display: block; width: 100%; text-align: left; margin-bottom: 8px; border-radius: 10px; }
+    .cb-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 90vw;
+                padding: 12px 16px; border-radius: 10px; color: #fff; background: #e67e22;
+                box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 1000; font-size: 14px; }
+    .cb-toast.high { background: #d35400; }
+    .cb-toast.danger { background: #d62828; }
+    #month-label { cursor: pointer; }
+  `;
+  document.head.appendChild(s);
 }
-function editBudget() {
-  const current = getBudget();
-  const val = prompt('Set your monthly budget (₹):', current || '');
-  if (val !== null && !isNaN(parseFloat(val))) {
-    localStorage.setItem('budget_' + currentUser, parseFloat(val));
-    renderAll();
+
+function openModal(title) {
+  injectUiStyles();
+  const overlay = document.createElement('div');
+  overlay.className = 'ui-overlay';
+  const panel = document.createElement('div');
+  panel.className = 'ui-panel';
+  // match the current theme by borrowing the page's own colours
+  const cs = getComputedStyle(document.body);
+  const bg = cs.backgroundColor;
+  panel.style.background = (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') ? '#fff' : bg;
+  panel.style.color = cs.color;
+  panel.innerHTML = '<h3>' + esc(title) + '</h3><div class="ui-body"></div>';
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+
+  const onKey = ev => { if (ev.key === 'Escape') close(); };
+  function close() {
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
   }
+  overlay.addEventListener('mousedown', ev => { if (ev.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  return { body: panel.querySelector('.ui-body'), close };
+}
+
+// ---- Overall monthly budget (stored in the database) ----
+function getBudget() { return monthlyBudget; }
+
+async function loadBudget() {
+  try {
+    const { ok, data } = await api('/api/budget');
+    if (!ok) throw new Error('status');
+    monthlyBudget = data.limit > 0 ? data.limit : 0;
+
+    // one-time move of an old browser-only budget into the database
+    const old = parseFloat(localStorage.getItem('budget_' + currentUser) || '0');
+    if (!monthlyBudget && old > 0) {
+      const r = await api('/api/budget', jsonOpts('PUT', { limit: old }));
+      if (r.ok) monthlyBudget = r.data.limit;
+    }
+    localStorage.removeItem('budget_' + currentUser);
+  } catch (err) {
+    console.warn('Could not load budget:', err);
+  }
+}
+
+async function editBudget() {
+  const val = prompt('Set your monthly budget (₹).\nLeave empty or enter 0 to remove it:', monthlyBudget || '');
+  if (val === null) return;
+  const num = val.trim() === '' ? 0 : Math.round(parseFloat(val) * 100) / 100;
+  if (isNaN(num) || num < 0) { alert('Please enter a valid amount'); return; }
+
+  const r = num === 0
+    ? await api('/api/budget', { method: 'DELETE' })
+    : await api('/api/budget', jsonOpts('PUT', { limit: num }));
+  if (!r.ok) { alert(r.data.error || 'Could not save the budget'); return; }
+  monthlyBudget = num;
+  renderAll();
 }
 
 // ---- Budget status: warnings + exceeded alerts ----
@@ -54,7 +184,6 @@ function updateBudgetStatus(spent, budget) {
   const budgetDisplay = document.getElementById('budget-display');
   const fill = document.getElementById('progress-fill');
 
-  // create the alert box once, right under the progress bar
   let box = document.getElementById('budget-alert');
   if (!box) {
     box = document.createElement('div');
@@ -116,12 +245,67 @@ async function logout() {
 
 // ---- Month navigation ----
 function changeMonth(delta) {
-  viewDate.setMonth(viewDate.getMonth() + delta);
+  viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + delta, 1);
   renderAll();
 }
 
 function monthStrOf(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+// Tap the month name to jump straight to any month of any year
+function openMonthPicker() {
+  const { body, close } = openModal('Jump to month');
+  const now = new Date();
+  const withData = new Set(allExpenses.map(e => e.date.slice(0, 7)));
+  const years = allExpenses.map(e => parseInt(e.date.slice(0, 4), 10));
+  const minYear = Math.min(now.getFullYear() - 1, viewDate.getFullYear(), ...years);
+  const maxYear = Math.max(now.getFullYear() + 1, viewDate.getFullYear());
+  let pickYear = viewDate.getFullYear();
+
+  function draw() {
+    let opts = '';
+    for (let y = maxYear; y >= minYear; y--) {
+      opts += '<option value="' + y + '"' + (y === pickYear ? ' selected' : '') + '>' + y + '</option>';
+    }
+    let grid = '';
+    for (let m = 0; m < 12; m++) {
+      const key = pickYear + '-' + String(m + 1).padStart(2, '0');
+      const cur = (pickYear === viewDate.getFullYear() && m === viewDate.getMonth()) ? ' current' : '';
+      const has = withData.has(key) ? ' has' : '';
+      grid += '<button class="ui-month' + cur + has + '" data-m="' + m + '">' +
+              MONTH_NAMES[m].slice(0, 3) + '</button>';
+    }
+    body.innerHTML =
+      '<div class="ui-picker-head">' +
+        '<button class="ui-btn" data-y="-1" ' + (pickYear <= minYear ? 'disabled' : '') + '>‹</button>' +
+        '<select id="pick-year">' + opts + '</select>' +
+        '<button class="ui-btn" data-y="1" ' + (pickYear >= maxYear ? 'disabled' : '') + '>›</button>' +
+      '</div>' +
+      '<div class="ui-months">' + grid + '</div>' +
+      '<div class="ui-hint">A dot means that month has expenses.</div>' +
+      '<div class="ui-actions"><button class="ui-btn" id="pick-today">This month</button></div>';
+  }
+  draw();
+
+  body.addEventListener('click', ev => {
+    const yBtn = ev.target.closest('[data-y]');
+    const mBtn = ev.target.closest('[data-m]');
+    if (yBtn && !yBtn.disabled) { pickYear += parseInt(yBtn.dataset.y, 10); draw(); }
+    if (mBtn) {
+      viewDate = new Date(pickYear, parseInt(mBtn.dataset.m, 10), 1);
+      close();
+      renderAll();
+    }
+    if (ev.target.id === 'pick-today') {
+      viewDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      close();
+      renderAll();
+    }
+  });
+  body.addEventListener('change', ev => {
+    if (ev.target.id === 'pick-year') { pickYear = parseInt(ev.target.value, 10); draw(); }
+  });
 }
 
 // ---- Expenses ----
@@ -139,11 +323,11 @@ async function addExpense() {
   const monthKey = date.slice(0, 7);
   const before = budgetLevelOf(category, monthKey);   // alert level before this expense
 
-  await fetch('/api/expenses', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount, category, description, date })
-  });
+  const r = await api('/api/expenses', jsonOpts('POST', { amount, category, description, date }));
+  if (!r.ok) {
+    alert(r.data.error || 'Could not save the expense');   // the server's validation message
+    return;
+  }
 
   document.getElementById('amount').value = '';
   document.getElementById('description').value = '';
@@ -151,7 +335,6 @@ async function addExpense() {
   document.getElementById('scanStatus').textContent = '';
   await loadAllExpenses();
 
-  // warn if this expense pushed the category past a new threshold
   const after = budgetLevelOf(category, monthKey);
   if (after.level && LEVEL_RANK[after.level] > LEVEL_RANK[before.level]) {
     showToast(category + ' budget: ' + after.msg, after.level);
@@ -159,9 +342,50 @@ async function addExpense() {
 }
 
 async function deleteExpense(id) {
-  if (!confirm('Delete this expense?')) return;
-  await fetch('/api/expenses/' + id, { method: 'DELETE' });
+  const r = await api('/api/expenses/' + id, { method: 'DELETE' });
+  if (!r.ok) { alert(r.data.error || 'Could not delete'); return false; }
   await loadAllExpenses();
+  return true;
+}
+
+// Tap an expense row to edit (or delete) it
+function openEditExpense(e) {
+  const { body, close } = openModal('Edit expense');
+  const options = Object.keys(CATEGORY_COLORS).map(c =>
+    '<option' + (c === e.category ? ' selected' : '') + '>' + c + '</option>').join('');
+  body.innerHTML =
+    '<label class="ui-field">Amount (₹)<input id="ed-amount" type="number" step="0.01" min="0" value="' + esc(e.amount) + '"></label>' +
+    '<label class="ui-field">Category<select id="ed-category">' + options + '</select></label>' +
+    '<label class="ui-field">Note<input id="ed-desc" type="text" maxlength="100" value="' + esc(e.description) + '"></label>' +
+    '<label class="ui-field">Date<input id="ed-date" type="date" value="' + esc(e.date) + '"></label>' +
+    '<div class="ui-error" id="ed-error"></div>' +
+    '<div class="ui-actions">' +
+      '<button class="ui-btn danger" id="ed-delete">Delete</button>' +
+      '<button class="ui-btn" id="ed-cancel">Cancel</button>' +
+      '<button class="ui-btn primary" id="ed-save">Save</button>' +
+    '</div>';
+
+  const err = body.querySelector('#ed-error');
+  body.querySelector('#ed-cancel').onclick = close;
+
+  body.querySelector('#ed-delete').onclick = async () => {
+    if (!confirm('Delete this expense?')) return;
+    if (await deleteExpense(e.id)) close();
+  };
+
+  body.querySelector('#ed-save').onclick = async () => {
+    const amount = parseFloat(body.querySelector('#ed-amount').value);
+    if (!amount || amount <= 0) { err.textContent = 'Enter a valid amount'; return; }
+    const r = await api('/api/expenses/' + e.id, jsonOpts('PUT', {
+      amount,
+      category: body.querySelector('#ed-category').value,
+      description: body.querySelector('#ed-desc').value,
+      date: body.querySelector('#ed-date').value
+    }));
+    if (!r.ok) { err.textContent = r.data.error || 'Could not save'; return; }
+    close();
+    await loadAllExpenses();
+  };
 }
 
 async function loadAllExpenses() {
@@ -179,8 +403,9 @@ function renderAll() {
   const month = viewDate.getMonth(); // 0-indexed
   const monthStr = monthStrOf(viewDate);
 
-  document.getElementById('month-label').textContent =
-    MONTH_NAMES[month] + (year !== new Date().getFullYear() ? ' ' + year : '');
+  const label = document.getElementById('month-label');
+  label.textContent = MONTH_NAMES[month] + (year !== new Date().getFullYear() ? ' ' + year : '') + ' ▾';
+  label.title = 'Tap to jump to another month or year';
 
   const monthExpenses = allExpenses.filter(e => e.date.slice(0, 7) === monthStr);
 
@@ -202,7 +427,7 @@ function renderAll() {
   }
 
   updateBudgetStatus(monthTotal, getBudget());
-  renderCategoryBudgets(monthExpenses);
+  updateToolbar(monthExpenses);
 
   renderRecentList(monthExpenses);
   renderBarChart(year, month, monthExpenses);
@@ -216,11 +441,12 @@ function renderRecentList(monthExpenses) {
   sorted.slice(0, 8).forEach(e => {
     const row = document.createElement('div');
     row.className = 'expense-row';
-    row.onclick = () => deleteExpense(e.id);
+    row.title = 'Tap to edit';
+    row.onclick = () => openEditExpense(e);
     row.innerHTML = `
       <div>
-        <div>${e.category}${e.description ? ' — ' + e.description : ''}</div>
-        <div class="expense-meta">${e.date}</div>
+        <div>${esc(e.category)}${e.description ? ' — ' + esc(e.description) : ''}</div>
+        <div class="expense-meta">${esc(e.date)}</div>
       </div>
       <div>₹${e.amount.toFixed(2)}</div>
     `;
@@ -243,7 +469,6 @@ function renderBarChart(year, month, monthExpenses) {
   const labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1).padStart(2, '0'));
   const colors = dailyTotals.map(v => v > 0 ? '#8B0000' : '#C9CDD3');
 
-  // Caption: peak day
   const maxVal = Math.max(...dailyTotals);
   const maxDay = dailyTotals.indexOf(maxVal) + 1;
   const captionEl = document.getElementById('outlay-caption');
@@ -321,7 +546,7 @@ function renderPieChart(monthExpenses, monthTotal) {
     const row = document.createElement('div');
     row.className = 'category-row';
     row.innerHTML = `
-      <div class="label"><span class="swatch" style="background:${colors[i]}"></span>${cat}</div>
+      <div class="label"><span class="swatch" style="background:${colors[i]}"></span>${esc(cat)}</div>
       <div>₹${values[i].toFixed(2)}</div>
     `;
     listEl.appendChild(row);
@@ -607,10 +832,9 @@ function fillFormFromReceipt(r) {
 });
 
 // =====================================================================
-//  CATEGORY BUDGETS
-//  A monthly limit per category, stored in the database (so it follows
-//  the user to any device). Alerts use the same thresholds as the
-//  overall budget: 75% heads-up, 90% almost there, 100%+ exceeded.
+//  CATEGORY BUDGETS (now tucked away in a small pop-up)
+//  Limits are stored in the database. Alerts use the same thresholds as
+//  the overall budget: 75% heads-up, 90% almost there, 100%+ exceeded.
 // =====================================================================
 const LEVEL_RANK = { '': 0, warn: 1, high: 2, danger: 3 };
 
@@ -643,6 +867,7 @@ function budgetLevelOf(category, monthStr) {
 }
 
 function showToast(message, level) {
+  injectUiStyles();
   const t = document.createElement('div');
   t.className = 'cb-toast ' + (level || '');
   t.textContent = message;
@@ -665,114 +890,155 @@ async function loadCategoryBudgets() {
   }
 }
 
-async function editCategoryBudget(category) {
-  const current = categoryBudgets[category] || '';
-  const val = prompt('Monthly limit for ' + category + ' (₹).\nLeave empty or enter 0 to remove it:', current);
-  if (val === null) return;
+function openCategoryBudgets() {
+  const { body, close } = openModal('Category budgets');
+  const monthStr = monthStrOf(viewDate);
+  const cats = Object.keys(CATEGORY_COLORS);
 
-  const num = val.trim() === '' ? 0 : Math.round(parseFloat(val) * 100) / 100;
-  if (isNaN(num) || num < 0) {
-    alert('Please enter a valid amount');
-    return;
-  }
-
-  try {
-    const url = '/api/category-budgets/' + encodeURIComponent(category);
-    const res = num === 0
-      ? await fetch(url, { method: 'DELETE' })
-      : await fetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: num })
-        });
-    if (res.status === 401) {
-      window.location.href = '/login.html';
-      return;
-    }
-    if (!res.ok) throw new Error('status ' + res.status);
-
-    if (num === 0) delete categoryBudgets[category];
-    else categoryBudgets[category] = num;
-    renderAll();
-  } catch (err) {
-    console.error(err);
-    alert('Could not save the limit. Please try again.');
-  }
-}
-
-// Styles for the card and the pop-up warning (works in light and dark theme)
-function injectBudgetStyles() {
-  if (document.getElementById('cb-styles')) return;
-  const s = document.createElement('style');
-  s.id = 'cb-styles';
-  s.textContent = `
-    .cb-row { padding: 10px 0; border-top: 1px solid rgba(128,128,128,.25); cursor: pointer; }
-    .cb-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .cb-name { display: flex; align-items: center; gap: 8px; }
-    .cb-track { height: 6px; border-radius: 3px; background: rgba(128,128,128,.25); margin-top: 8px; overflow: hidden; }
-    .cb-fill { height: 100%; background: #27ae60; transition: width .3s; }
-    .cb-fill.warn { background: #e67e22; }
-    .cb-fill.high { background: #d35400; }
-    .cb-fill.danger { background: #d62828; }
-    .cb-msg { margin-top: 6px; font-size: 12px; }
-    .cb-msg.warn { color: #e67e22; }
-    .cb-msg.high { color: #d35400; }
-    .cb-msg.danger { color: #d62828; }
-    .cb-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 90vw;
-                padding: 12px 16px; border-radius: 10px; color: #fff; background: #e67e22;
-                box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 1000; font-size: 14px; }
-    .cb-toast.high { background: #d35400; }
-    .cb-toast.danger { background: #d62828; }
-  `;
-  document.head.appendChild(s);
-}
-
-// Create the card once, just above the DAILY OUTLAY card
-function ensureBudgetCard() {
-  let card = document.getElementById('cat-budget-card');
-  if (card) return card;
-  injectBudgetStyles();
-  card = document.createElement('div');
-  card.id = 'cat-budget-card';
-  card.className = 'card span-2';
-  card.addEventListener('click', e => {
-    const row = e.target.closest('.cb-row');
-    if (row) editCategoryBudget(row.dataset.cat);
+  let rows = '';
+  cats.forEach(cat => {
+    const spent = categorySpent(cat, monthStr);
+    const st = budgetState(spent, categoryBudgets[cat]);
+    rows +=
+      '<div class="ui-cat-row">' +
+        '<div><div class="ui-cat-name"><span class="ui-swatch" style="background:' + CATEGORY_COLORS[cat] + '"></span>' + esc(cat) + '</div>' +
+          '<div class="ui-hint ' + st.level + '">₹' + spent.toFixed(2) + ' spent this month' + (st.msg ? ' · ' + esc(st.msg) : '') + '</div></div>' +
+        '<input type="number" min="0" step="0.01" inputmode="decimal" placeholder="No limit" data-cat="' + cat + '" value="' + (categoryBudgets[cat] || '') + '">' +
+      '</div>';
   });
-  document.getElementById('barChart').closest('.card').insertAdjacentElement('beforebegin', card);
-  return card;
+
+  body.innerHTML =
+    '<div class="ui-hint" style="margin-bottom:8px">Monthly limit per category (₹). Leave empty to remove a limit.</div>' +
+    rows +
+    '<div class="ui-error" id="cb-error"></div>' +
+    '<div class="ui-actions">' +
+      '<button class="ui-btn" id="cb-cancel">Cancel</button>' +
+      '<button class="ui-btn primary" id="cb-save">Save</button>' +
+    '</div>';
+
+  body.querySelector('#cb-cancel').onclick = close;
+  body.querySelector('#cb-save').onclick = async () => {
+    const err = body.querySelector('#cb-error');
+    const budgets = {};
+    for (const input of body.querySelectorAll('input[data-cat]')) {
+      const raw = input.value.trim();
+      const n = raw === '' ? 0 : Math.round(parseFloat(raw) * 100) / 100;
+      if (isNaN(n) || n < 0) { err.textContent = 'Check the amount for ' + input.dataset.cat; return; }
+      budgets[input.dataset.cat] = n;     // 0 = remove, the server understands that
+    }
+    const r = await api('/api/category-budgets', jsonOpts('PUT', { budgets }));
+    if (!r.ok) { err.textContent = r.data.error || 'Could not save'; return; }
+    categoryBudgets = r.data.budgets || {};
+    close();
+    renderAll();
+  };
 }
 
-function renderCategoryBudgets(monthExpenses) {
-  const card = ensureBudgetCard();
+// =====================================================================
+//  TOOLBAR (category budgets + export), kept slim above the daily chart
+// =====================================================================
+function ensureToolbar() {
+  let bar = document.getElementById('ui-toolbar');
+  if (bar) return bar;
+  injectUiStyles();
+  // remove the old big category card if an earlier version left one behind
+  const old = document.getElementById('cat-budget-card');
+  if (old) old.remove();
+
+  bar = document.createElement('div');
+  bar.id = 'ui-toolbar';
+  bar.className = 'ui-toolbar span-2';
+  bar.innerHTML =
+    '<button class="ui-btn" id="btn-cat-budgets">Category budgets<span class="ui-badge" id="cb-badge" hidden></span></button>' +
+    '<button class="ui-btn" id="btn-export">Export</button>';
+  bar.querySelector('#btn-cat-budgets').onclick = openCategoryBudgets;
+  bar.querySelector('#btn-export').onclick = openExportMenu;
+  document.getElementById('barChart').closest('.card').insertAdjacentElement('beforebegin', bar);
+  return bar;
+}
+
+// Small badge on the button when any category is close to or over its limit
+function updateToolbar(monthExpenses) {
+  ensureToolbar();
   const spentBy = {};
   monthExpenses.forEach(e => { spentBy[e.category] = (spentBy[e.category] || 0) + e.amount; });
-
-  let html = '<div class="card-title-row"><div class="card-title">CATEGORY BUDGETS</div>' +
-             '<div class="muted small">tap a category to set its limit</div></div>';
-
+  let alerts = 0, over = false;
   Object.keys(CATEGORY_COLORS).forEach(cat => {
-    const spent = spentBy[cat] || 0;
-    const limit = categoryBudgets[cat];
-    const st = budgetState(spent, limit);
-    html += '<div class="cb-row" data-cat="' + cat + '">' +
-      '<div class="cb-top">' +
-        '<span class="cb-name"><span class="swatch" style="background:' + CATEGORY_COLORS[cat] + '"></span>' + cat + '</span>' +
-        '<span class="cb-amt">₹' + spent.toFixed(2) + (limit > 0 ? ' / ₹' + Number(limit).toFixed(2) : ' · set limit') + '</span>' +
-      '</div>';
-    if (limit > 0) {
-      html += '<div class="cb-track"><div class="cb-fill ' + st.level + '" style="width:' + Math.min(st.pct, 100) + '%"></div></div>';
-      if (st.msg) html += '<div class="cb-msg ' + st.level + '">' + st.msg + '</div>';
-    }
-    html += '</div>';
+    const st = budgetState(spentBy[cat] || 0, categoryBudgets[cat]);
+    if (st.level) alerts++;
+    if (st.level === 'danger') over = true;
   });
-  card.innerHTML = html;
+  const badge = document.getElementById('cb-badge');
+  badge.hidden = alerts === 0;
+  badge.textContent = alerts;
+  badge.className = 'ui-badge' + (over ? ' danger' : '');
+}
+
+// =====================================================================
+//  EXPORT (CSV comes from the server; PDF is made by the browser's print dialog)
+// =====================================================================
+function openExportMenu() {
+  const { body, close } = openModal('Export');
+  const monthStr = monthStrOf(viewDate);
+  const niceMonth = MONTH_NAMES[viewDate.getMonth()].slice(0, 3) + ' ' + viewDate.getFullYear();
+  body.innerHTML =
+    '<button class="ui-btn ui-menu-item" data-a="csv-month">CSV · ' + niceMonth + '</button>' +
+    '<button class="ui-btn ui-menu-item" data-a="csv-all">CSV · all expenses</button>' +
+    '<button class="ui-btn ui-menu-item" data-a="pdf">PDF · ' + niceMonth + '</button>' +
+    '<div class="ui-hint">For PDF, choose "Save as PDF" in the print window.</div>';
+  body.addEventListener('click', ev => {
+    const a = ev.target.closest('[data-a]');
+    if (!a) return;
+    if (a.dataset.a === 'csv-month') window.location.href = '/api/export.csv?month=' + monthStr;
+    if (a.dataset.a === 'csv-all') window.location.href = '/api/export.csv';
+    if (a.dataset.a === 'pdf') exportPdf();
+    close();
+  });
+}
+
+function exportPdf() {
+  const monthStr = monthStrOf(viewDate);
+  const title = MONTH_NAMES[viewDate.getMonth()] + ' ' + viewDate.getFullYear();
+  const rows = allExpenses
+    .filter(e => e.date.slice(0, 7) === monthStr)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const total = rows.reduce((s, e) => s + e.amount, 0);
+
+  const byCat = {};
+  rows.forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Please allow pop-ups to export the PDF'); return; }
+
+  w.document.write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>Expenses ' + esc(title) + '</title>' +
+    '<style>body{font-family:Arial,sans-serif;margin:32px;color:#111}h1{font-size:20px;margin:0 0 4px}' +
+    '.sub{color:#666;font-size:13px;margin-bottom:20px}table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px}' +
+    'th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #ddd}th{background:#f3f3f3}' +
+    'td.r,th.r{text-align:right}.total{font-weight:bold}h2{font-size:15px;margin:18px 0 6px}</style></head><body>' +
+    '<h1>Expense report — ' + esc(title) + '</h1>' +
+    '<div class="sub">' + esc(currentUser) + ' · generated ' + esc(todayStr()) + '</div>' +
+    '<h2>By category</h2><table><tr><th>Category</th><th class="r">Amount (₹)</th></tr>' +
+    Object.keys(byCat).map(c => '<tr><td>' + esc(c) + '</td><td class="r">' + byCat[c].toFixed(2) + '</td></tr>').join('') +
+    '<tr class="total"><td>Total</td><td class="r">' + total.toFixed(2) + '</td></tr></table>' +
+    '<h2>All expenses</h2><table><tr><th>Date</th><th>Category</th><th>Note</th><th class="r">Amount (₹)</th></tr>' +
+    (rows.length
+      ? rows.map(e => '<tr><td>' + esc(e.date) + '</td><td>' + esc(e.category) + '</td><td>' + esc(e.description) +
+          '</td><td class="r">' + e.amount.toFixed(2) + '</td></tr>').join('')
+      : '<tr><td colspan="4">No expenses this month.</td></tr>') +
+    '</table></body></html>'
+  );
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
 }
 
 // ---- Start ----
+document.getElementById('month-label').addEventListener('click', openMonthPicker);
+
 checkAuth().then(async ok => {
   if (ok) {
-    await loadCategoryBudgets();   // limits first, so the first draw already has them
+    await Promise.all([loadBudget(), loadCategoryBudgets()]);   // so the first draw already has them
     await loadAllExpenses();
   }
 });
