@@ -108,6 +108,19 @@ function injectUiStyles() {
     .ui-month.current { background: #8B0000; border-color: #8B0000; color: #fff; }
     .ui-month.has::after { content: ''; position: absolute; bottom: 5px; left: 50%; width: 4px; height: 4px; margin-left: -2px;
                            border-radius: 50%; background: currentColor; opacity: .7; }
+    .ui-list-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .ui-list-sum { font-size: 12px; opacity: .75; text-align: right; }
+    .ui-list { max-height: 58vh; overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
+    .ui-exp-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 12px;
+                  margin-bottom: 6px; border: 1px solid rgba(128,128,128,.2); border-radius: 12px; cursor: pointer; }
+    .ui-exp-row:hover { background: rgba(128,128,128,.12); }
+    .ui-exp-main { min-width: 0; }
+    .ui-exp-title { font-size: 14px; overflow-wrap: anywhere; }
+    .ui-exp-cat { font-weight: 600; }
+    .ui-exp-meta { font-size: 11px; opacity: .65; margin-top: 4px; }
+    .ui-exp-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .ui-exp-amt { font-weight: 600; font-size: 14px; white-space: nowrap; }
+    .ui-exp-go { font-size: 11px; opacity: .55; }
     .ui-menu-item { display: block; width: 100%; text-align: left; margin-bottom: 8px; border-radius: 10px; }
     .cb-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 90vw;
                 padding: 12px 16px; border-radius: 10px; color: #fff; background: #e67e22;
@@ -524,10 +537,30 @@ function openAllExpenses() {
   const rows = allExpenses.filter(e => e.date.slice(0, 7) === monthStr).sort(newestFirst);
   const total = rows.reduce((s, e) => s + e.amount, 0);
   const { body, close } = openModal('Expenses · ' + monthLabelOf(viewDate), { wide: true });
-  body.innerHTML = '<div class="ui-hint" style="margin-bottom:8px">' + rows.length + ' expenses · ₹' +
-                   total.toFixed(2) + ' · tap one to edit</div><div id="all-list"></div>';
+
+  body.innerHTML =
+    '<div class="ui-list-top">' +
+      '<button class="ui-btn" id="all-back">← Back</button>' +
+      '<div class="ui-list-sum">' + rows.length + ' expenses · ₹' + total.toFixed(2) + '</div>' +
+    '</div>' +
+    '<div class="ui-hint" style="margin-bottom:10px">Tap an expense to edit or delete it.</div>' +
+    '<div class="ui-list" id="all-list"></div>';
+  body.querySelector('#all-back').onclick = close;
+
   const holder = body.querySelector('#all-list');
-  rows.forEach(e => holder.appendChild(expenseRowEl(e, () => { close(); openEditExpense(e); })));
+  rows.forEach(e => {
+    const row = document.createElement('div');
+    row.className = 'ui-exp-row';
+    row.onclick = () => { close(); openEditExpense(e); };
+    row.innerHTML =
+      '<div class="ui-exp-main">' +
+        '<div class="ui-exp-title"><span class="ui-exp-cat">' + esc(e.category) + '</span>' +
+          (e.description ? ' — ' + esc(e.description) : '') + '</div>' +
+        '<div class="ui-exp-meta">' + esc(e.date) + '</div>' +
+      '</div>' +
+      '<div class="ui-exp-right"><span class="ui-exp-amt">₹' + e.amount.toFixed(2) + '</span><span class="ui-exp-go">Edit ›</span></div>';
+    holder.appendChild(row);
+  });
   if (!rows.length) holder.innerHTML = '<div class="muted small">No expenses this month.</div>';
 }
 
