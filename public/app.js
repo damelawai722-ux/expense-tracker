@@ -146,7 +146,7 @@ function openModal(title, opts) {
 }
 
 // ---- Budgets are per month ----
-// A budget saved for a month also applies to the months after it, until you change it again.
+// Each month has its own budget. A month you haven't set shows no budget.
 function monthLabelOf(d) {
   return MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
 }
@@ -180,7 +180,7 @@ async function editBudget() {
   const month = monthStrOf(viewDate);
   const val = prompt(
     'Budget for ' + monthLabelOf(viewDate) + ' (₹).\n' +
-    'It also applies to later months until you change it.\nLeave empty or enter 0 for no budget:',
+    'This only applies to this month.\nLeave empty or enter 0 for no budget:',
     monthlyBudget || '');
   if (val === null) return;
   const num = val.trim() === '' ? 0 : Math.round(parseFloat(val) * 100) / 100;
@@ -188,7 +188,7 @@ async function editBudget() {
 
   const r = await api('/api/budget', jsonOpts('PUT', { month, limit: num }));
   if (!r.ok) { alert(r.data.error || 'Could not save the budget'); return; }
-  budgetCache = {};                 // later months may follow this one, so reload them all
+  delete budgetCache[month];
   await ensureBudgets(month);
   renderAll();
 }
@@ -976,7 +976,7 @@ function openCategoryBudgets() {
   });
 
   body.innerHTML =
-    '<div class="ui-hint" style="margin-bottom:8px">Limits for ' + monthLabelOf(viewDate) + ' (₹). They also apply to later months until you change them. Leave empty for no limit.</div>' +
+    '<div class="ui-hint" style="margin-bottom:8px">Limits for ' + monthLabelOf(viewDate) + ' (₹). Only this month is affected. Leave empty for no limit.</div>' +
     rows +
     '<div class="ui-error" id="cb-error"></div>' +
     '<div class="ui-actions">' +
@@ -997,7 +997,7 @@ function openCategoryBudgets() {
     const month = monthStrOf(viewDate);
     const r = await api('/api/category-budgets', jsonOpts('PUT', { month, budgets }));
     if (!r.ok) { err.textContent = r.data.error || 'Could not save'; return; }
-    budgetCache = {};               // later months may follow this one, so reload them all
+    delete budgetCache[month];
     await ensureBudgets(month);
     close();
     renderAll();

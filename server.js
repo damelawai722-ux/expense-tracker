@@ -50,8 +50,7 @@ async function initDb() {
   `);
 
   // NEW tables: budgets per month.
-  // A row for month "2026-10" applies to that month AND every later month,
-  // until a newer row exists. An amount of 0 means "no budget from this month on".
+  // A row for month "2026-10" applies to that month ONLY. A month with no row has no budget (0).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS monthly_budgets (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -70,7 +69,7 @@ async function initDb() {
     )
   `);
 
-  // Carry the old budgets over as a "0000-00" baseline that applies to every month.
+  // Old all-months budgets are copied to a "0000-00" row that no month uses (kept only as a backup).
   await pool.query(`
     INSERT INTO monthly_budgets (user_id, month, amount)
     SELECT user_id, '0000-00', monthly_budget FROM user_settings WHERE monthly_budget IS NOT NULL
@@ -359,16 +358,15 @@ app.get('/api/export.csv', requireAuth, async (req, res) => {
 });
 
 // ---- Overall monthly budget, PER MONTH ----
-// GET  /api/budget?month=YYYY-MM  -> { limit }  (the budget in force for that month, or null)
-// PUT  /api/budget                -> body { month, limit }  (limit 0 = no budget from that month on)
+// GET  /api/budget?month=YYYY-MM  -> { limit }  (that month's budget, or null if none was set)
+// PUT  /api/budget                -> body { month, limit }  (limit 0 = no budget for that month)
 app.get('/api/budget', requireAuth, async (req, res) => {
   const month = parseMonth(req.query.month);
   if (!month) return res.status(400).json({ error: 'Invalid month' });
   try {
     const { rows } = await pool.query(
       `SELECT amount FROM monthly_budgets
-       WHERE user_id = $1 AND month <= $2
-       ORDER BY month DESC LIMIT 1`,
+       WHERE user_id = $1 AND month = $2`,
       [req.session.userId, month]
     );
     const amount = rows[0] ? Number(rows[0].amount) : 0;
@@ -398,13 +396,12 @@ app.put('/api/budget', requireAuth, async (req, res) => {
 });
 
 // ---- Category budgets, PER MONTH ----
-// Same rule: a limit saved for a month also applies to later months until changed again.
+// Same rule: a limit belongs to one month only; categories not set for that month have no limit.
 async function getCategoryBudgetMap(db, userId, month) {
   const { rows } = await db.query(
-    `SELECT DISTINCT ON (category) category, monthly_limit
+    `SELECT category, monthly_limit
      FROM category_budgets_monthly
-     WHERE user_id = $1 AND month <= $2
-     ORDER BY category, month DESC`,
+     WHERE user_id = $1 AND month = $2`,
     [userId, month]
   );
   const out = {};
@@ -415,7 +412,7 @@ async function getCategoryBudgetMap(db, userId, month) {
   return out;
 }
 
-// Read the limits in force for a month:  { "Food": 3000, "Bills": 2000 }
+// Read the limits set for one month:  { "Food": 3000, "Bills": 2000 }
 app.get('/api/category-budgets', requireAuth, async (req, res) => {
   const month = parseMonth(req.query.month);
   if (!month) return res.status(400).json({ error: 'Invalid month' });
@@ -456,7 +453,7 @@ app.put('/api/category-budgets', requireAuth, async (req, res) => {
     await client.query('BEGIN');
     const current = await getCategoryBudgetMap(client, userId, month);
     for (const [cat, limit] of clean) {
-      // only write what actually changed, so unchanged categories keep following earlier months
+      // nothing to write when the value is unchanged
       if (limit === (current[cat] || 0)) continue;
       await client.query(
         `INSERT INTO category_budgets_monthly (user_id, month, category, monthly_limit) VALUES ($1, $2, $3, $4)
