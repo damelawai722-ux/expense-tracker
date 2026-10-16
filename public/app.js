@@ -942,17 +942,39 @@ const scanBtn = document.getElementById('scanBtn');
 const receiptInput = document.getElementById('receiptInput');
 const scanStatus = document.getElementById('scanStatus');
 
-// One button for everything. The input in index.html has capture="environment", which on Android
-// forces the camera and hides the gallery. Removing it makes the phone show its own chooser
-// (Camera, Photos/Gallery, Files); on a laptop it simply opens the file picker.
-receiptInput.removeAttribute('capture');
-scanBtn.addEventListener('click', () => receiptInput.click());
+// Two ways to add a receipt on a phone:
+//   "Scan receipt" -> camera (the input in index.html has capture="environment")
+//   "Upload"       -> gallery / files (a second input without capture)
+// On a laptop there is no camera to choose, so only ONE button is shown, and it opens the file picker.
+const isTouchDevice = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 
-receiptInput.addEventListener('change', async () => {
-  const file = receiptInput.files[0];
+const uploadInput = document.createElement('input');
+uploadInput.type = 'file';
+uploadInput.accept = 'image/*';
+uploadInput.hidden = true;
+scanBtn.insertAdjacentElement('afterend', uploadInput);
+
+let uploadBtn = null;
+if (isTouchDevice) {
+  uploadBtn = document.createElement('button');
+  uploadBtn.type = 'button';
+  uploadBtn.id = 'uploadBtn';
+  uploadBtn.className = scanBtn.className;
+  uploadBtn.textContent = '🖼 Upload';
+  scanBtn.insertAdjacentElement('afterend', uploadBtn);
+  uploadBtn.addEventListener('click', () => uploadInput.click());
+  scanBtn.addEventListener('click', () => receiptInput.click());          // camera
+} else {
+  scanBtn.textContent = '🖼 Upload receipt';
+  scanBtn.addEventListener('click', () => uploadInput.click());           // file picker
+}
+
+async function handleReceiptFile(input) {
+  const file = input.files[0];
   if (!file) return;
 
   scanBtn.disabled = true;
+  if (uploadBtn) uploadBtn.disabled = true;
   try {
     let result, source = 'AI';
     try {
@@ -971,9 +993,13 @@ receiptInput.addEventListener('change', async () => {
     scanStatus.textContent = 'Could not read the receipt. Please enter it manually.';
   } finally {
     scanBtn.disabled = false;
-    receiptInput.value = '';
+    if (uploadBtn) uploadBtn.disabled = false;
+    input.value = '';
   }
-});
+}
+
+receiptInput.addEventListener('change', () => handleReceiptFile(receiptInput));
+uploadInput.addEventListener('change', () => handleReceiptFile(uploadInput));
 
 function fillFormFromReceipt(r) {
   // reset first, so values from an earlier scan never linger
