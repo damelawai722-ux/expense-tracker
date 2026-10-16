@@ -376,12 +376,12 @@ async function addExpense() {
   await loadAllExpenses();
 
   const after = budgetLevelOf(category, monthKey);
-  if (after.level && LEVEL_RANK[after.level] > LEVEL_RANK[before.level]) {
+  if (shouldWarn(before, after)) {
     showToast(category + ' budget: ' + after.msg, after.level);
   }
 
   const overallAfter = overallLevelOf(monthKey);
-  if (overallAfter.level && LEVEL_RANK[overallAfter.level] > LEVEL_RANK[overallBefore.level]) {
+  if (shouldWarn(overallBefore, overallAfter)) {
     showToast('Monthly budget: ' + overallAfter.msg, overallAfter.level);
   }
 }
@@ -975,8 +975,15 @@ function categorySpent(category, monthStr) {
     .reduce((s, e) => s + e.amount, 0);
 }
 
+// uses the limits of THAT month (the expense's month may not be the month on screen)
 function budgetLevelOf(category, monthStr) {
-  return budgetState(categorySpent(category, monthStr), categoryBudgets[category]);
+  const b = budgetCache[monthStr];
+  return budgetState(categorySpent(category, monthStr), b ? b.cats[category] : 0);
+}
+
+// Warn when an expense crosses a new level, and also when it is added to something already over the limit
+function shouldWarn(before, after) {
+  return !!after.level && (LEVEL_RANK[after.level] > LEVEL_RANK[before.level] || after.level === 'danger');
 }
 
 // Alert level of the overall monthly budget for a month
