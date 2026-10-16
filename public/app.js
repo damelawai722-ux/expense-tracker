@@ -15,8 +15,9 @@ let barChart, pieChart;
 let allExpenses = [];
 let viewDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // day 1 avoids "Jan 31 + 1 month = March" bug
 let currentUser = '';
-let categoryBudgets = {};   // per-category monthly limits, e.g. { Food: 3000, Bills: 2000 }
-let monthlyBudget = 0;      // overall monthly budget (loaded from the database)
+let categoryBudgets = {};   // limits for the month being viewed, e.g. { Food: 3000, Bills: 2000 }
+let monthlyBudget = 0;      // overall budget for the month being viewed
+let budgetCache = {};       // 'YYYY-MM' -> { overall, cats }  (budgets differ from month to month)
 
 const CATEGORY_COLORS = {
   Food: '#8B0000', Travel: '#2980b9', Bills: '#e67e22',
@@ -118,12 +119,13 @@ function injectUiStyles() {
   document.head.appendChild(s);
 }
 
-function openModal(title) {
+function openModal(title, opts) {
   injectUiStyles();
   const overlay = document.createElement('div');
   overlay.className = 'ui-overlay';
   const panel = document.createElement('div');
   panel.className = 'ui-panel';
+  if (opts && opts.wide) panel.style.maxWidth = '520px';
   // match the current theme by borrowing the page's own colours
   const cs = getComputedStyle(document.body);
   const bg = cs.backgroundColor;
@@ -143,39 +145,62 @@ function openModal(title) {
   return { body: panel.querySelector('.ui-body'), close };
 }
 
-// ---- Overall monthly budget (stored in the database) ----
-function getBudget() { return monthlyBudget; }
-
-async function loadBudget() {
-  try {
-    const { ok, data } = await api('/api/budget');
-    if (!ok) throw new Error('status');
-    monthlyBudget = data.limit > 0 ? data.limit : 0;
-
-    // one-time move of an old browser-only budget into the database
-    const old = parseFloat(localStorage.getItem('budget_' + currentUser) || '0');
-    if (!monthlyBudget && old > 0) {
-      const r = await api('/api/budget', jsonOpts('PUT', { limit: old }));
-      if (r.ok) monthlyBudget = r.data.limit;
-    }
-    localStorage.removeItem('budget_' + currentUser);
-  } catch (err) {
-    console.warn('Could not load budget:', err);
-  }
+// ---- Budgets are per month ----
+// A budget saved for a month also applies to the months after it, until you change it again.
+function monthLabelOf(d) {
+  return MONTH_NAMES[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear();
 }
 
+const budgetLoading = {};
+function ensureBudgets(monthStr) {
+  if (budgetCache[monthStr]) return Promise.resolve(true);
+  if (budgetLoading[monthStr]) return budgetLoading[monthStr];
+  budgetLoading[monthStr] = (async () => {
+    try {
+      const [o, c] = await Promise.all([
+        api('/api/budget?month=' + monthStr),
+        api('/api/category-budgets?month=' + monthStr)
+      ]);
+      if (!o.ok || !c.ok) throw new Error('status');
+      budgetCache[monthStr] = { overall: o.data.limit > 0 ? o.data.limit : 0, cats: c.data || {} };
+      return true;
+    } catch (err) {
+      console.warn('Could not load budgets for ' + monthStr, err);
+      return false;
+    } finally {
+      delete budgetLoading[monthStr];
+    }
+  })();
+  return budgetLoading[monthStr];
+}
+
+function getBudget() { return monthlyBudget; }
+
 async function editBudget() {
-  const val = prompt('Set your monthly budget (₹).\nLeave empty or enter 0 to remove it:', monthlyBudget || '');
+  const month = monthStrOf(viewDate);
+  const val = prompt(
+    'Budget for ' + monthLabelOf(viewDate) + ' (₹).\n' +
+    'It also applies to later months until you change it.\nLeave empty or enter 0 for no budget:',
+    monthlyBudget || '');
   if (val === null) return;
   const num = val.trim() === '' ? 0 : Math.round(parseFloat(val) * 100) / 100;
   if (isNaN(num) || num < 0) { alert('Please enter a valid amount'); return; }
 
-  const r = num === 0
-    ? await api('/api/budget', { method: 'DELETE' })
-    : await api('/api/budget', jsonOpts('PUT', { limit: num }));
+  const r = await api('/api/budget', jsonOpts('PUT', { month, limit: num }));
   if (!r.ok) { alert(r.data.error || 'Could not save the budget'); return; }
-  monthlyBudget = num;
+  budgetCache = {};                 // later months may follow this one, so reload them all
+  await ensureBudgets(month);
   renderAll();
+}
+
+// Text shown when you hover a category in the ring (or its row in the list)
+function categoryTip(cat, spent) {
+  const limit = categoryBudgets[cat];
+  if (!(limit > 0)) return ['No limit set for ' + cat];
+  const st = budgetState(spent, limit);
+  const lines = ['₹' + spent.toFixed(2) + ' of ₹' + Number(limit).toFixed(2) + ' (' + Math.round(st.pct) + '%)'];
+  if (st.msg) lines.push(st.msg);
+  return lines;
 }
 
 // ---- Budget status: warnings + exceeded alerts ----
@@ -321,6 +346,7 @@ async function addExpense() {
   }
 
   const monthKey = date.slice(0, 7);
+  await ensureBudgets(monthKey);                      // that month's limits
   const before = budgetLevelOf(category, monthKey);   // alert level before this expense
 
   const r = await api('/api/expenses', jsonOpts('POST', { amount, category, description, date }));
@@ -403,6 +429,11 @@ function renderAll() {
   const month = viewDate.getMonth(); // 0-indexed
   const monthStr = monthStrOf(viewDate);
 
+  // budgets of the month being viewed (they differ from month to month)
+  const mb = budgetCache[monthStr] || { overall: 0, cats: {} };
+  monthlyBudget = mb.overall;
+  categoryBudgets = mb.cats;
+
   const label = document.getElementById('month-label');
   label.textContent = MONTH_NAMES[month] + (year !== new Date().getFullYear() ? ' ' + year : '') + ' ▾';
   label.title = 'Tap to jump to another month or year';
@@ -432,29 +463,72 @@ function renderAll() {
   renderRecentList(monthExpenses);
   renderBarChart(year, month, monthExpenses);
   renderPieChart(monthExpenses, monthTotal);
+
+  // first visit to this month: fetch its budgets, then draw again
+  if (!budgetCache[monthStr]) {
+    ensureBudgets(monthStr).then(ok => { if (ok && monthStrOf(viewDate) === monthStr) renderAll(); });
+  }
+}
+
+const RECENT_LIMIT = 5;
+const newestFirst = (a, b) => b.date.localeCompare(a.date) || b.id - a.id;
+
+function expenseRowEl(e, onClick) {
+  const row = document.createElement('div');
+  row.className = 'expense-row';
+  row.title = 'Tap to edit';
+  row.onclick = onClick;
+  row.innerHTML = `
+    <div>
+      <div>${esc(e.category)}${e.description ? ' — ' + esc(e.description) : ''}</div>
+      <div class="expense-meta">${esc(e.date)}</div>
+    </div>
+    <div>₹${e.amount.toFixed(2)}</div>
+  `;
+  return row;
+}
+
+// "View all" button: takes the place of the old "tap to delete" hint
+function ensureViewAllBtn() {
+  let btn = document.getElementById('view-all-btn');
+  if (btn) return btn;
+  injectUiStyles();
+  const list = document.getElementById('expense-list-new');
+  const card = list.closest('.card') || list.parentElement;
+  btn = document.createElement('button');
+  btn.id = 'view-all-btn';
+  btn.className = 'ui-btn';
+  btn.style.padding = '4px 12px';
+  btn.onclick = openAllExpenses;
+  const hint = [...card.querySelectorAll('*')].find(el => el.children.length === 0 && /tap to delete/i.test(el.textContent));
+  if (hint) hint.replaceWith(btn); else list.insertAdjacentElement('beforebegin', btn);
+  return btn;
 }
 
 function renderRecentList(monthExpenses) {
   const list = document.getElementById('expense-list-new');
   list.innerHTML = '';
-  const sorted = [...monthExpenses].sort((a, b) => b.date.localeCompare(a.date));
-  sorted.slice(0, 8).forEach(e => {
-    const row = document.createElement('div');
-    row.className = 'expense-row';
-    row.title = 'Tap to edit';
-    row.onclick = () => openEditExpense(e);
-    row.innerHTML = `
-      <div>
-        <div>${esc(e.category)}${e.description ? ' — ' + esc(e.description) : ''}</div>
-        <div class="expense-meta">${esc(e.date)}</div>
-      </div>
-      <div>₹${e.amount.toFixed(2)}</div>
-    `;
-    list.appendChild(row);
-  });
+  const sorted = [...monthExpenses].sort(newestFirst);
+  sorted.slice(0, RECENT_LIMIT).forEach(e => list.appendChild(expenseRowEl(e, () => openEditExpense(e))));
   if (sorted.length === 0) {
     list.innerHTML = '<div class="muted small">Nothing here yet — add your first expense below.</div>';
   }
+  const btn = ensureViewAllBtn();
+  btn.hidden = sorted.length === 0;
+  btn.textContent = sorted.length > RECENT_LIMIT ? 'View all (' + sorted.length + ')' : 'View all';
+}
+
+// Every expense of the month in a scrollable pop-up
+function openAllExpenses() {
+  const monthStr = monthStrOf(viewDate);
+  const rows = allExpenses.filter(e => e.date.slice(0, 7) === monthStr).sort(newestFirst);
+  const total = rows.reduce((s, e) => s + e.amount, 0);
+  const { body, close } = openModal('Expenses · ' + monthLabelOf(viewDate), { wide: true });
+  body.innerHTML = '<div class="ui-hint" style="margin-bottom:8px">' + rows.length + ' expenses · ₹' +
+                   total.toFixed(2) + ' · tap one to edit</div><div id="all-list"></div>';
+  const holder = body.querySelector('#all-list');
+  rows.forEach(e => holder.appendChild(expenseRowEl(e, () => { close(); openEditExpense(e); })));
+  if (!rows.length) holder.innerHTML = '<div class="muted small">No expenses this month.</div>';
 }
 
 function renderBarChart(year, month, monthExpenses) {
@@ -532,7 +606,15 @@ function renderPieChart(monthExpenses, monthTotal) {
       responsive: true,
       maintainAspectRatio: false,
       cutout: '72%',
-      plugins: { legend: { display: false } }
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: item => '₹' + Number(item.raw).toFixed(2),
+            afterLabel: item => categoryTip(item.label, item.raw)   // budget message on hover
+          }
+        }
+      }
     }
   });
 
@@ -545,6 +627,7 @@ function renderPieChart(monthExpenses, monthTotal) {
   labels.forEach((cat, i) => {
     const row = document.createElement('div');
     row.className = 'category-row';
+    row.title = categoryTip(cat, values[i]).join('\n');
     row.innerHTML = `
       <div class="label"><span class="swatch" style="background:${colors[i]}"></span>${esc(cat)}</div>
       <div>₹${values[i].toFixed(2)}</div>
@@ -875,23 +958,8 @@ function showToast(message, level) {
   setTimeout(() => t.remove(), 6000);
 }
 
-async function loadCategoryBudgets() {
-  try {
-    const res = await fetch('/api/category-budgets');
-    if (res.status === 401) {
-      window.location.href = '/login.html';
-      return;
-    }
-    if (!res.ok) throw new Error('status ' + res.status);
-    categoryBudgets = await res.json();
-  } catch (err) {
-    console.warn('Could not load category budgets:', err);
-    categoryBudgets = {};
-  }
-}
-
 function openCategoryBudgets() {
-  const { body, close } = openModal('Category budgets');
+  const { body, close } = openModal('Category budgets · ' + monthLabelOf(viewDate));
   const monthStr = monthStrOf(viewDate);
   const cats = Object.keys(CATEGORY_COLORS);
 
@@ -908,7 +976,7 @@ function openCategoryBudgets() {
   });
 
   body.innerHTML =
-    '<div class="ui-hint" style="margin-bottom:8px">Monthly limit per category (₹). Leave empty to remove a limit.</div>' +
+    '<div class="ui-hint" style="margin-bottom:8px">Limits for ' + monthLabelOf(viewDate) + ' (₹). They also apply to later months until you change them. Leave empty for no limit.</div>' +
     rows +
     '<div class="ui-error" id="cb-error"></div>' +
     '<div class="ui-actions">' +
@@ -926,9 +994,11 @@ function openCategoryBudgets() {
       if (isNaN(n) || n < 0) { err.textContent = 'Check the amount for ' + input.dataset.cat; return; }
       budgets[input.dataset.cat] = n;     // 0 = remove, the server understands that
     }
-    const r = await api('/api/category-budgets', jsonOpts('PUT', { budgets }));
+    const month = monthStrOf(viewDate);
+    const r = await api('/api/category-budgets', jsonOpts('PUT', { month, budgets }));
     if (!r.ok) { err.textContent = r.data.error || 'Could not save'; return; }
-    categoryBudgets = r.data.budgets || {};
+    budgetCache = {};               // later months may follow this one, so reload them all
+    await ensureBudgets(month);
     close();
     renderAll();
   };
@@ -1038,7 +1108,7 @@ document.getElementById('month-label').addEventListener('click', openMonthPicker
 
 checkAuth().then(async ok => {
   if (ok) {
-    await Promise.all([loadBudget(), loadCategoryBudgets()]);   // so the first draw already has them
+    await ensureBudgets(monthStrOf(viewDate));   // so the first draw already has them
     await loadAllExpenses();
   }
 });
