@@ -942,30 +942,17 @@ const scanBtn = document.getElementById('scanBtn');
 const receiptInput = document.getElementById('receiptInput');
 const scanStatus = document.getElementById('scanStatus');
 
-// "Scan receipt" opens the camera (the input in index.html has capture="environment")
+// One button for everything. The input in index.html has capture="environment", which on Android
+// forces the camera and hides the gallery. Removing it makes the phone show its own chooser
+// (Camera, Photos/Gallery, Files); on a laptop it simply opens the file picker.
+receiptInput.removeAttribute('capture');
 scanBtn.addEventListener('click', () => receiptInput.click());
 
-// "Upload" lets you pick a photo from the gallery or files, with no camera.
-// It is created here, so index.html needs no change.
-const uploadInput = document.createElement('input');
-uploadInput.type = 'file';
-uploadInput.accept = 'image/*';
-uploadInput.hidden = true;
-const uploadBtn = document.createElement('button');
-uploadBtn.type = 'button';
-uploadBtn.id = 'uploadBtn';
-uploadBtn.className = scanBtn.className;
-uploadBtn.textContent = '🖼 Upload';
-scanBtn.insertAdjacentElement('afterend', uploadBtn);
-uploadBtn.insertAdjacentElement('afterend', uploadInput);
-uploadBtn.addEventListener('click', () => uploadInput.click());
-
-async function handleReceiptFile(input) {
-  const file = input.files[0];
+receiptInput.addEventListener('change', async () => {
+  const file = receiptInput.files[0];
   if (!file) return;
 
   scanBtn.disabled = true;
-  uploadBtn.disabled = true;
   try {
     let result, source = 'AI';
     try {
@@ -984,13 +971,9 @@ async function handleReceiptFile(input) {
     scanStatus.textContent = 'Could not read the receipt. Please enter it manually.';
   } finally {
     scanBtn.disabled = false;
-    uploadBtn.disabled = false;
-    input.value = '';
+    receiptInput.value = '';
   }
-}
-
-receiptInput.addEventListener('change', () => handleReceiptFile(receiptInput));
-uploadInput.addEventListener('change', () => handleReceiptFile(uploadInput));
+});
 
 function fillFormFromReceipt(r) {
   // reset first, so values from an earlier scan never linger
