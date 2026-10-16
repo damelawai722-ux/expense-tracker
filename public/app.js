@@ -17,6 +17,7 @@ let viewDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // 
 let currentUser = '';
 let categoryBudgets = {};   // limits for the month being viewed, e.g. { Food: 3000, Bills: 2000 }
 let monthlyBudget = 0;      // overall budget for the month being viewed
+let lastDateMonth = '';     // month the Add form's date was last set for
 let budgetCache = {};       // 'YYYY-MM' -> { overall, cats }  (budgets differ from month to month)
 
 const CATEGORY_COLORS = {
@@ -301,6 +302,11 @@ async function logout() {
   window.location.href = '/login.html';
 }
 
+// Date shown in the Add form: today for the current month, otherwise the 1st of the month on screen
+function defaultDateFor(d) {
+  return monthStrOf(d) === monthStrOf(new Date()) ? todayStr() : monthStrOf(d) + '-01';
+}
+
 // ---- Month navigation ----
 function changeMonth(delta) {
   viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + delta, 1);
@@ -495,6 +501,13 @@ function renderAll() {
   const mb = budgetCache[monthStr] || { overall: 0, cats: {} };
   monthlyBudget = mb.overall;
   categoryBudgets = mb.cats;
+
+  // keep the Add form's date inside the month on screen (a scanned date is left alone)
+  if (lastDateMonth !== monthStr) {
+    lastDateMonth = monthStr;
+    const dateEl = document.getElementById('date');
+    if (!dateEl.classList.contains('filled-by-scan')) dateEl.value = defaultDateFor(viewDate);
+  }
 
   const label = document.getElementById('month-label');
   label.textContent = MONTH_NAMES[month] + (year !== new Date().getFullYear() ? ' ' + year : '') + ' ▾';
@@ -929,13 +942,30 @@ const scanBtn = document.getElementById('scanBtn');
 const receiptInput = document.getElementById('receiptInput');
 const scanStatus = document.getElementById('scanStatus');
 
+// "Scan receipt" opens the camera (the input in index.html has capture="environment")
 scanBtn.addEventListener('click', () => receiptInput.click());
 
-receiptInput.addEventListener('change', async () => {
-  const file = receiptInput.files[0];
+// "Upload" lets you pick a photo from the gallery or files, with no camera.
+// It is created here, so index.html needs no change.
+const uploadInput = document.createElement('input');
+uploadInput.type = 'file';
+uploadInput.accept = 'image/*';
+uploadInput.hidden = true;
+const uploadBtn = document.createElement('button');
+uploadBtn.type = 'button';
+uploadBtn.id = 'uploadBtn';
+uploadBtn.className = scanBtn.className;
+uploadBtn.textContent = '🖼 Upload';
+scanBtn.insertAdjacentElement('afterend', uploadBtn);
+uploadBtn.insertAdjacentElement('afterend', uploadInput);
+uploadBtn.addEventListener('click', () => uploadInput.click());
+
+async function handleReceiptFile(input) {
+  const file = input.files[0];
   if (!file) return;
 
   scanBtn.disabled = true;
+  uploadBtn.disabled = true;
   try {
     let result, source = 'AI';
     try {
@@ -954,16 +984,20 @@ receiptInput.addEventListener('change', async () => {
     scanStatus.textContent = 'Could not read the receipt. Please enter it manually.';
   } finally {
     scanBtn.disabled = false;
-    receiptInput.value = '';
+    uploadBtn.disabled = false;
+    input.value = '';
   }
-});
+}
+
+receiptInput.addEventListener('change', () => handleReceiptFile(receiptInput));
+uploadInput.addEventListener('change', () => handleReceiptFile(uploadInput));
 
 function fillFormFromReceipt(r) {
   // reset first, so values from an earlier scan never linger
   document.querySelectorAll('.filled-by-scan').forEach(el => el.classList.remove('filled-by-scan'));
   document.getElementById('amount').value = '';
   document.getElementById('description').value = '';
-  document.getElementById('date').value = todayStr();
+  document.getElementById('date').value = defaultDateFor(viewDate);
 
   const mark = (id, value) => {
     const el = document.getElementById(id);
