@@ -68,13 +68,36 @@
     injectSplitStyles();
     const ctx = openModal('Splits', { wide: true });
     showList(ctx);
+    startLive(ctx);
   }
   window.openSplits = openSplits;
 
+  // Live updates: the server pings us when a group changes; we quietly re-fetch.
+  function startLive(ctx) {
+    if (typeof EventSource === 'undefined') return;   // very old browser: Refresh button still works
+    const es = new EventSource('/api/splits/stream');
+    let timer = null, opened = false;
+    const refresh = (groupId) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (ctx.view === 'list') showList(ctx, true);
+        else if (ctx.view === 'group' && (groupId == null || ctx.gid === groupId)) showGroup(ctx, ctx.gid, true);
+        // while typing in a form we never redraw; the next screen fetches fresh data anyway
+      }, 250);
+    };
+    es.onopen = () => { if (opened) refresh(null); opened = true; };   // reconnected: catch up on anything missed
+    es.onmessage = ev => {
+      if (!ctx.body.isConnected) { es.close(); return; }               // Splits was closed
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.t === 'changed') refresh(m.g);
+    };
+  }
+
   // ------------------------- my groups -------------------------
-  async function showList(ctx) {
+  async function showList(ctx, silent) {
     const { body } = ctx;
-    body.innerHTML = '<div class="muted small">Loading…</div>';
+    ctx.view = 'list';
+    if (!silent) body.innerHTML = '<div class="muted small">Loading…</div>';
     const r = await api('/api/splits/groups');
     if (!r.ok) { body.innerHTML = '<div class="ui-error">' + esc(r.data.error || 'Could not load') + '</div>'; return; }
     const groups = r.data;
@@ -90,15 +113,76 @@
             '<div class="sp-sub">' + g.members + (g.members === 1 ? ' member' : ' members') + '</div></div>' +
             statusHtml(g.myBalance) + '</div>').join('')
         : '<div class="empty">No groups yet.<br>Create one for a trip or a flat, then share the code with friends.</div>') +
+      '<div id="sp-pushbox"></div>' +
       '<div class="sp-note">Keeps track only. No real money moves through the app.</div>';
 
     body.querySelector('#sp-new').onclick = () => showCreate(ctx);
     body.querySelector('#sp-join').onclick = () => showJoin(ctx);
     body.querySelectorAll('[data-g]').forEach(el => { el.onclick = () => showGroup(ctx, Number(el.dataset.g)); });
+    setupPush(body.querySelector('#sp-pushbox'));
+  }
+
+  // ------------------------- notifications (Web Push) -------------------------
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+  function keyToBytes(b64) {
+    const pad = '='.repeat((4 - b64.length % 4) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+  }
+  async function currentSub() {
+    const reg = await navigator.serviceWorker.ready;
+    return reg.pushManager.getSubscription();
+  }
+  async function enablePush() {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Notifications were not allowed');
+    const k = await api('/api/splits/push/key');
+    if (!k.ok) throw new Error(k.data.error || 'Notifications are not available');
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) ||
+      (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(k.data.key) }));
+    const r = await api('/api/splits/push/subscribe', jsonOpts('POST', { subscription: sub.toJSON() }));
+    if (!r.ok) throw new Error(r.data.error || 'Could not save');
+  }
+  async function disablePush() {
+    const sub = await currentSub();
+    if (!sub) return;
+    await api('/api/splits/push/unsubscribe', jsonOpts('POST', { endpoint: sub.endpoint }));
+    await sub.unsubscribe();
+  }
+  // app.js calls this on log out so a shared phone stops getting your notifications
+  window.splitsPushOff = async () => { try { if (pushSupported()) await disablePush(); } catch (e) { /* ignore */ } };
+
+  async function setupPush(box) {
+    if (!box) return;
+    if (!pushSupported()) {
+      const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      box.innerHTML = '<div class="sp-note">' + (ios
+        ? 'For notifications on iPhone: tap Share → Add to Home Screen, then open the app from your Home Screen.'
+        : 'Notifications are not supported in this browser.') + '</div>';
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      box.innerHTML = '<div class="sp-note">Notifications are blocked. Allow them in your browser or phone settings for this site.</div>';
+      return;
+    }
+    let on = false;
+    try { on = !!(await currentSub()); } catch (e) { /* treat as off */ }
+    box.innerHTML = '<div class="ui-actions" style="justify-content:flex-start;margin:14px 0 0"><button class="ui-btn" id="sp-push">' +
+      (on ? '🔔 Notifications on · Turn off' : '🔔 Turn on notifications') + '</button></div>';
+    box.querySelector('#sp-push').onclick = async () => {
+      try {
+        if (on) { await disablePush(); toast('Notifications off'); }
+        else { await enablePush(); toast('Notifications on'); }
+      } catch (e) { toast(e.message || 'Could not change notifications'); }
+      setupPush(box);
+    };
   }
 
   function showCreate(ctx) {
     const { body } = ctx;
+    ctx.view = 'form';
     body.innerHTML =
       '<button class="sp-back" id="sp-b">‹ Back</button>' +
       '<label class="ui-field">Group name<input id="sp-name" maxlength="40" placeholder="e.g. Shillong trip"></label>' +
@@ -118,6 +202,7 @@
 
   function showJoin(ctx) {
     const { body } = ctx;
+    ctx.view = 'form';
     body.innerHTML =
       '<button class="sp-back" id="sp-b">‹ Back</button>' +
       '<label class="ui-field">Invite code<input id="sp-code" maxlength="10" placeholder="e.g. K7M2QX" autocapitalize="characters" style="letter-spacing:2px;text-transform:uppercase"></label>' +
@@ -136,9 +221,11 @@
   }
 
   // ------------------------- one group -------------------------
-  async function showGroup(ctx, gid) {
+  async function showGroup(ctx, gid, silent) {
     const { body } = ctx;
-    body.innerHTML = '<div class="muted small">Loading…</div>';
+    ctx.view = 'group';
+    ctx.gid = gid;
+    if (!silent) body.innerHTML = '<div class="muted small">Loading…</div>';
     const r = await api('/api/splits/groups/' + gid);
     if (!r.ok) {
       body.innerHTML = '<button class="sp-back" id="sp-b">‹ Back</button><div class="ui-error">' +
@@ -266,6 +353,7 @@
   // ------------------------- add something to split -------------------------
   function showAddExpense(ctx, d) {
     const { body } = ctx;
+    ctx.view = 'form';
     const me = d.me;
     body.innerHTML =
       '<button class="sp-back" id="sp-b">‹ Back</button>' +

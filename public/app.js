@@ -348,6 +348,7 @@ async function checkAuth() {
   return true;
 }
 async function logout() {
+  if (window.splitsPushOff) await window.splitsPushOff();
   await fetch('/api/logout', { method: 'POST' });
   window.location.href = '/login.html';
 }
