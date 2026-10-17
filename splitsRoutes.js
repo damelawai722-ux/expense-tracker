@@ -290,6 +290,7 @@ function mountSplits(app, pool, requireAuth, helpers) {
       'X-Accel-Buffering': 'no'          // stop proxies holding the messages back
     });
     res.write('retry: 3000\n\n');       // browser reconnects after 3s if dropped
+    res.write('data: {"t":"ping"}\n\n');  // proves to the phone that messages really arrive
 
     let set = streams.get(me);
     if (!set) { set = new Set(); streams.set(me, set); }
