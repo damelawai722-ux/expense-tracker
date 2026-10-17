@@ -31,6 +31,8 @@ async function initDb() {
     )
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id)');
+  // "Worth it / Regret" rating for each expense (empty = not rated yet)
+  await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS verdict TEXT');
 
   // OLD tables (one budget for all months). Kept only so existing data can be carried over.
   await pool.query(`
@@ -113,7 +115,12 @@ function parseExpense(body) {
     return { error: 'Date must be a real date (YYYY-MM-DD)' };
   }
   const description = String(b.description || '').trim().slice(0, 100);
-  return { value: { amount: Math.round(amount * 100) / 100, category, date, description } };
+  const verdictRaw = String(b.verdict || '');
+  if (verdictRaw && !['worth', 'regret'].includes(verdictRaw)) {
+    return { error: 'Unknown rating' };
+  }
+  const verdict = verdictRaw || null;
+  return { value: { amount: Math.round(amount * 100) / 100, category, date, description, verdict } };
 }
 
 // 0 is allowed (it means "no limit"); returns null when the value is not usable
@@ -233,11 +240,11 @@ app.get('/api/me', (req, res) => {
 app.post('/api/expenses', requireAuth, async (req, res) => {
   const parsed = parseExpense(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
-  const { amount, category, description, date } = parsed.value;
+  const { amount, category, description, date, verdict } = parsed.value;
   try {
     await pool.query(
-      'INSERT INTO expenses (user_id, amount, category, description, date) VALUES ($1, $2, $3, $4, $5)',
-      [req.session.userId, amount, category, description, date]
+      'INSERT INTO expenses (user_id, amount, category, description, date, verdict) VALUES ($1, $2, $3, $4, $5, $6)',
+      [req.session.userId, amount, category, description, date, verdict]
     );
     res.json({ success: true });
   } catch (e) {
@@ -249,7 +256,7 @@ app.post('/api/expenses', requireAuth, async (req, res) => {
 app.get('/api/expenses', requireAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, amount, category, description, date FROM expenses WHERE user_id = $1 ORDER BY date DESC, id DESC',
+      'SELECT id, amount, category, description, date, verdict FROM expenses WHERE user_id = $1 ORDER BY date DESC, id DESC',
       [req.session.userId]
     );
     res.json(result.rows);
@@ -266,12 +273,12 @@ app.put('/api/expenses/:id', requireAuth, async (req, res) => {
 
   const parsed = parseExpense(req.body);
   if (parsed.error) return res.status(400).json({ error: parsed.error });
-  const { amount, category, description, date } = parsed.value;
+  const { amount, category, description, date, verdict } = parsed.value;
 
   try {
     const result = await pool.query(
-      'UPDATE expenses SET amount = $1, category = $2, description = $3, date = $4 WHERE id = $5 AND user_id = $6',
-      [amount, category, description, date, id, req.session.userId]
+      'UPDATE expenses SET amount = $1, category = $2, description = $3, date = $4, verdict = $5 WHERE id = $6 AND user_id = $7',
+      [amount, category, description, date, verdict, id, req.session.userId]
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Expense not found' });
     res.json({ success: true });
@@ -328,7 +335,7 @@ function csvCell(v) {
 
 app.get('/api/export.csv', requireAuth, async (req, res) => {
   const month = String(req.query.month || '');
-  let sql = 'SELECT date, category, description, amount FROM expenses WHERE user_id = $1';
+  let sql = 'SELECT date, category, description, amount, verdict FROM expenses WHERE user_id = $1';
   const params = [req.session.userId];
   let label = 'all';
 
@@ -344,9 +351,10 @@ app.get('/api/export.csv', requireAuth, async (req, res) => {
 
   try {
     const { rows } = await pool.query(sql, params);
-    const lines = ['Date,Category,Note,Amount (INR)'];
+    const lines = ['Date,Category,Note,Amount (INR),Rating'];
     rows.forEach(r => {
-      lines.push([r.date, r.category, r.description, Number(r.amount).toFixed(2)].map(csvCell).join(','));
+      const rating = r.verdict === 'worth' ? 'Worth it' : r.verdict === 'regret' ? 'Regret' : '';
+      lines.push([r.date, r.category, r.description, Number(r.amount).toFixed(2), rating].map(csvCell).join(','));
     });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="expenses-' + label + '.csv"');

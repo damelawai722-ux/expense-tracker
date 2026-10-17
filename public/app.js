@@ -21,9 +21,19 @@ let lastDateMonth = '';     // month the Add form's date was last set for
 let budgetCache = {};       // 'YYYY-MM' -> { overall, cats }  (budgets differ from month to month)
 
 const CATEGORY_COLORS = {
-  Food: '#8B0000', Travel: '#2980b9', Bills: '#e67e22',
-  Entertainment: '#8e44ad', Shopping: '#27ae60', Health: '#16a085', Other: '#f1c40f'
+  Food: '#F4A340', Travel: '#4C9AFF', Bills: '#7C6CF0',
+  Entertainment: '#E86AA6', Shopping: '#2FBF8F', Health: '#EF5B5B', Other: '#9AA5A0'
 };
+const CATEGORY_ICONS = {
+  Food: '🍔', Travel: '🚗', Bills: '🧾', Entertainment: '🎬', Shopping: '🛍️', Health: '💊', Other: '📦'
+};
+
+// 1234.5 -> "1,234.50" (Indian digit grouping)
+function inr(n) {
+  return Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+// read a colour from the current theme (so charts follow light/dark)
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const MONTH_NAMES = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
 
 // ---- Small helpers ----
@@ -53,11 +63,14 @@ const jsonOpts = (method, body) => ({
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀' : '🌙';
+  const st = document.getElementById('theme-state');
+  if (st) st.textContent = theme === 'dark' ? 'On' : 'Off';
   localStorage.setItem('theme', theme);
 }
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'light';
   applyTheme(current === 'dark' ? 'light' : 'dark');
+  if (currentUser) renderAll();      // charts pick up the new colours
 }
 applyTheme(localStorage.getItem('theme') || 'light');
 
@@ -122,6 +135,23 @@ function injectUiStyles() {
     .ui-exp-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     .ui-exp-amt { font-weight: 600; font-size: 14px; white-space: nowrap; }
     .ui-exp-go { font-size: 11px; opacity: .55; }
+    .safe-box { margin-top: 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
+    .safe-main { font-size: 15px; font-weight: 700; }
+    .safe-main.warn { color: #e67e22; } .safe-main.danger { color: #d62828; }
+    .safe-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .safe-sub.warn { color: #e67e22; }
+    .ui-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: rgba(128,128,128,.25); margin: 4px 0 12px; }
+    .ui-leg { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 4px 0; }
+    .ui-sec { font-size: 12px; font-weight: 600; letter-spacing: .5px; opacity: .75; margin: 18px 0 8px; }
+    .ui-btn.primary { background: var(--lime); border-color: var(--lime); color: var(--on-lime); font-weight: 700; }
+    .ui-btn.primary:hover { background: var(--lime); opacity: .9; }
+    .ui-month.current { background: var(--lime); border-color: var(--lime); color: var(--on-lime); font-weight: 700; }
+    .ui-panel { border-radius: 24px; }
+    .qa-ico { font-size: 16px; }
+    @media (max-width: 600px) {
+      .ui-overlay { align-items: flex-end; padding: 0; }
+      .ui-panel { max-width: none !important; border-radius: 26px 26px 0 0; max-height: 90vh; padding-bottom: 28px; }
+    }
     .ui-menu-item { display: block; width: 100%; text-align: left; margin-bottom: 8px; border-radius: 10px; }
     .cb-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: 90vw;
                 padding: 12px 16px; border-radius: 10px; color: #fff; background: #e67e22;
@@ -140,11 +170,8 @@ function openModal(title, opts) {
   const panel = document.createElement('div');
   panel.className = 'ui-panel';
   if (opts && opts.wide) panel.style.maxWidth = '520px';
-  // match the current theme by borrowing the page's own colours
-  const cs = getComputedStyle(document.body);
-  const bg = cs.backgroundColor;
-  panel.style.background = (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') ? '#fff' : bg;
-  panel.style.color = cs.color;
+  panel.style.background = 'var(--card-bg)';
+  panel.style.color = 'var(--text)';
   panel.innerHTML = '<h3>' + esc(title) + '</h3><div class="ui-body"></div>';
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
@@ -260,7 +287,7 @@ function updateBudgetStatus(spent, budget) {
   }
 
   const pct = (spent / budget) * 100;
-  budgetDisplay.textContent = '₹' + budget.toFixed(2) + ' budget · ' + Math.round(pct) + '% used';
+  budgetDisplay.textContent = '₹' + inr(budget) + ' budget · ' + Math.round(pct) + '% used';
   fill.style.width = Math.min(pct, 100) + '%';
 
   let level = '', msg = '';
@@ -295,6 +322,8 @@ async function checkAuth() {
     return false;
   }
   currentUser = data.username;
+  const hn = document.getElementById('hello-name');
+  if (hn) hn.textContent = currentUser;
   return true;
 }
 async function logout() {
@@ -378,6 +407,7 @@ async function addExpense() {
   const category = document.getElementById('category').value;
   const description = document.getElementById('description').value;
   const date = document.getElementById('date').value;
+  const verdict = document.getElementById('verdict').value;
 
   if (!amount || amount <= 0 || !date) {
     alert('Please enter a valid amount and date');
@@ -412,14 +442,16 @@ async function addExpense() {
     return;
   }
 
-  const r = await api('/api/expenses', jsonOpts('POST', { amount, category, description, date }));
+  const r = await api('/api/expenses', jsonOpts('POST', { amount, category, description, date, verdict }));
   if (!r.ok) {
     alert(r.data.error || 'Could not save the expense');   // the server's validation message
     return;
   }
 
+  closeAddSheet();
   document.getElementById('amount').value = '';
   document.getElementById('description').value = '';
+  document.getElementById('verdict').value = '';
   document.querySelectorAll('.filled-by-scan').forEach(el => el.classList.remove('filled-by-scan'));
   document.getElementById('scanStatus').textContent = '';
   await loadAllExpenses();
@@ -452,6 +484,10 @@ function openEditExpense(e) {
     '<label class="ui-field">Category<select id="ed-category">' + options + '</select></label>' +
     '<label class="ui-field">Note<input id="ed-desc" type="text" maxlength="100" value="' + esc(e.description) + '"></label>' +
     '<label class="ui-field">Date<input id="ed-date" type="date" value="' + esc(e.date) + '"></label>' +
+    '<label class="ui-field">How do you feel about it?<select id="ed-verdict">' +
+      '<option value=""' + (!e.verdict ? ' selected' : '') + '>Not rated</option>' +
+      '<option value="worth"' + (e.verdict === 'worth' ? ' selected' : '') + '>👍 Worth it</option>' +
+      '<option value="regret"' + (e.verdict === 'regret' ? ' selected' : '') + '>👎 Regret</option></select></label>' +
     '<div class="ui-error" id="ed-error"></div>' +
     '<div class="ui-actions">' +
       '<button class="ui-btn danger" id="ed-delete">Delete</button>' +
@@ -474,7 +510,8 @@ function openEditExpense(e) {
       amount,
       category: body.querySelector('#ed-category').value,
       description: body.querySelector('#ed-desc').value,
-      date: body.querySelector('#ed-date').value
+      date: body.querySelector('#ed-date').value,
+      verdict: body.querySelector('#ed-verdict').value
     }));
     if (!r.ok) { err.textContent = r.data.error || 'Could not save'; return; }
     close();
@@ -517,16 +554,23 @@ function renderAll() {
 
   const monthTotal = monthExpenses.reduce((s, e) => s + e.amount, 0);
 
-  document.getElementById('month-total').textContent = monthTotal.toFixed(2);
+  document.getElementById('month-total').textContent = inr(monthTotal);
+
+  const sb = document.getElementById('settings-budget-val');
+  if (sb) sb.textContent = monthlyBudget > 0
+    ? '₹' + inr(monthlyBudget) + ' for ' + monthLabelOf(viewDate)
+    : 'Not set for ' + monthLabelOf(viewDate);
 
   // the "% vs previous" pill was removed; hide it if the old HTML still has it
   const pctEl = document.getElementById('pct-change');
   if (pctEl) pctEl.hidden = true;
 
   updateBudgetStatus(monthTotal, getBudget());
+  updateSafeToSpend(monthExpenses, monthTotal);
   updateToolbar(monthExpenses);
 
   renderRecentList(monthExpenses);
+  renderExpensesTab(monthExpenses);
   renderBarChart(year, month, monthExpenses);
   renderPieChart(monthExpenses, monthTotal);
 
@@ -537,84 +581,89 @@ function renderAll() {
 }
 
 const RECENT_LIMIT = 5;
+const verdictBadge = e => e.verdict === 'worth' ? ' 👍' : e.verdict === 'regret' ? ' 👎' : '';
 const newestFirst = (a, b) => b.date.localeCompare(a.date) || b.id - a.id;
 
-function expenseRowEl(e, onClick) {
+// One expense as a rounded card: category icon, name, note, amount on the right
+function expenseRowEl(e, onClick, showDate) {
   const row = document.createElement('div');
   row.className = 'expense-row';
   row.title = 'Tap to edit';
   row.onclick = onClick;
-  row.innerHTML = `
-    <div>
-      <div>${esc(e.category)}${e.description ? ' — ' + esc(e.description) : ''}</div>
-      <div class="expense-meta">${esc(e.date)}</div>
-    </div>
-    <div>₹${e.amount.toFixed(2)}</div>
-  `;
+  const color = CATEGORY_COLORS[e.category] || '#999999';
+  row.innerHTML =
+    '<div class="exp-icon" style="background:' + color + '26">' + (CATEGORY_ICONS[e.category] || '💸') + '</div>' +
+    '<div class="exp-main">' +
+      '<div class="exp-title">' + esc(e.category) + verdictBadge(e) + '</div>' +
+      (e.description ? '<div class="exp-note">' + esc(e.description) + '</div>' : '') +
+      (showDate ? '<div class="expense-meta">' + esc(e.date) + '</div>' : '') +
+    '</div>' +
+    '<div class="exp-amt">₹' + inr(e.amount) + '</div>';
   return row;
-}
-
-// "View all" button: takes the place of the old "tap to delete" hint
-function ensureViewAllBtn() {
-  let btn = document.getElementById('view-all-btn');
-  if (btn) return btn;
-  injectUiStyles();
-  const list = document.getElementById('expense-list-new');
-  const card = list.closest('.card') || list.parentElement;
-  btn = document.createElement('button');
-  btn.id = 'view-all-btn';
-  btn.className = 'ui-btn';
-  btn.style.padding = '4px 12px';
-  btn.onclick = openAllExpenses;
-  const hint = [...card.querySelectorAll('*')].find(el => el.children.length === 0 && /tap to delete/i.test(el.textContent));
-  if (hint) hint.replaceWith(btn); else list.insertAdjacentElement('beforebegin', btn);
-  return btn;
 }
 
 function renderRecentList(monthExpenses) {
   const list = document.getElementById('expense-list-new');
   list.innerHTML = '';
   const sorted = [...monthExpenses].sort(newestFirst);
-  sorted.slice(0, RECENT_LIMIT).forEach(e => list.appendChild(expenseRowEl(e, () => openEditExpense(e))));
+  sorted.slice(0, RECENT_LIMIT).forEach(e => list.appendChild(expenseRowEl(e, () => openEditExpense(e), true)));
   if (sorted.length === 0) {
-    list.innerHTML = '<div class="muted small">Nothing here yet — add your first expense below.</div>';
+    list.innerHTML = '<div class="empty">Nothing here yet. Tap + to add your first expense.</div>';
   }
-  const btn = ensureViewAllBtn();
-  btn.hidden = sorted.length === 0;
-  btn.textContent = sorted.length > RECENT_LIMIT ? 'View all (' + sorted.length + ')' : 'View all';
+  const btn = document.getElementById('view-all-btn');
+  if (btn) btn.hidden = sorted.length === 0;
 }
 
-// Every expense of the month in a scrollable pop-up
-function openAllExpenses() {
-  const monthStr = monthStrOf(viewDate);
-  const rows = allExpenses.filter(e => e.date.slice(0, 7) === monthStr).sort(newestFirst);
+// "All Expenses" page: category chips + expenses grouped by day
+let expenseFilter = 'All';
+
+function renderExpensesTab(monthExpenses) {
+  const chipsEl = document.getElementById('filter-chips');
+  const cats = ['All'].concat(Object.keys(CATEGORY_COLORS));
+  if (!cats.includes(expenseFilter)) expenseFilter = 'All';
+  const keepScroll = chipsEl.scrollLeft;
+  chipsEl.innerHTML = cats.map(c =>
+    '<button class="chip' + (c === expenseFilter ? ' active' : '') + '" data-cat="' + c + '">' + c + '</button>').join('');
+  chipsEl.scrollLeft = keepScroll;
+
+  const rows = monthExpenses
+    .filter(e => expenseFilter === 'All' || e.category === expenseFilter)
+    .sort(newestFirst);
   const total = rows.reduce((s, e) => s + e.amount, 0);
-  const { body, close } = openModal('Expenses · ' + monthLabelOf(viewDate), { wide: true });
 
-  body.innerHTML =
-    '<div class="ui-list-top">' +
-      '<button class="ui-btn" id="all-back">← Back</button>' +
-      '<div class="ui-list-sum">' + rows.length + ' expenses · ₹' + total.toFixed(2) + '</div>' +
-    '</div>' +
-    '<div class="ui-hint" style="margin-bottom:10px">Tap an expense to edit or delete it.</div>' +
-    '<div class="ui-list" id="all-list"></div>';
-  body.querySelector('#all-back').onclick = close;
+  document.getElementById('exp-label').textContent =
+    expenseFilter === 'All' ? 'TOTAL SPENT' : 'TOTAL · ' + expenseFilter.toUpperCase();
+  document.getElementById('exp-total').textContent = inr(total);
+  document.getElementById('exp-count').textContent =
+    rows.length + (rows.length === 1 ? ' transaction' : ' transactions') + ' · ' + monthLabelOf(viewDate);
 
-  const holder = body.querySelector('#all-list');
+  const list = document.getElementById('all-expenses-list');
+  list.innerHTML = '';
+  if (!rows.length) {
+    list.innerHTML = '<div class="empty">No expenses here.</div>';
+    return;
+  }
+
+  const groups = [];
   rows.forEach(e => {
-    const row = document.createElement('div');
-    row.className = 'ui-exp-row';
-    row.onclick = () => { close(); openEditExpense(e); };
-    row.innerHTML =
-      '<div class="ui-exp-main">' +
-        '<div class="ui-exp-title"><span class="ui-exp-cat">' + esc(e.category) + '</span>' +
-          (e.description ? ' — ' + esc(e.description) : '') + '</div>' +
-        '<div class="ui-exp-meta">' + esc(e.date) + '</div>' +
-      '</div>' +
-      '<div class="ui-exp-right"><span class="ui-exp-amt">₹' + e.amount.toFixed(2) + '</span><span class="ui-exp-go">Edit ›</span></div>';
-    holder.appendChild(row);
+    let g = groups[groups.length - 1];
+    if (!g || g.date !== e.date) { g = { date: e.date, items: [], total: 0 }; groups.push(g); }
+    g.items.push(e);
+    g.total += e.amount;
   });
-  if (!rows.length) holder.innerHTML = '<div class="muted small">No expenses this month.</div>';
+
+  groups.forEach(g => {
+    const [y, m, d] = g.date.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const head = document.createElement('div');
+    head.className = 'day-head';
+    head.innerHTML =
+      '<span class="day-pill">' + dt.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase() + '</span>' +
+      '<span>' + dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + '</span>' +
+      '<span class="day-total">₹' + inr(g.total) + '</span>';
+    list.appendChild(head);
+    g.items.forEach(e => list.appendChild(expenseRowEl(e, () => openEditExpense(e), false)));
+  });
 }
 
 function renderBarChart(year, month, monthExpenses) {
@@ -627,7 +676,7 @@ function renderBarChart(year, month, monthExpenses) {
   });
 
   const labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1).padStart(2, '0'));
-  const colors = dailyTotals.map(v => v > 0 ? '#8B0000' : '#C9CDD3');
+  const colors = dailyTotals.map(v => v > 0 ? cssVar('--bar-on') : cssVar('--bar-off'));
 
   const maxVal = Math.max(...dailyTotals);
   const maxDay = dailyTotals.indexOf(maxVal) + 1;
@@ -646,8 +695,8 @@ function renderBarChart(year, month, monthExpenses) {
       datasets: [{
         data: dailyTotals,
         backgroundColor: colors,
-        maxBarThickness: 10,
-        borderRadius: 3,
+        maxBarThickness: 12,
+        borderRadius: 4,
         minBarLength: 3
       }]
     },
@@ -1087,7 +1136,7 @@ function showToast(message, level) {
   t.className = 'cb-toast ' + (level || '');
   t.textContent = message;
   // stack above any toast that is still showing
-  t.style.bottom = (24 + document.querySelectorAll('.cb-toast').length * 60) + 'px';
+  t.style.bottom = (100 + document.querySelectorAll('.cb-toast').length * 60) + 'px';
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 6000);
 }
@@ -1142,22 +1191,15 @@ function openCategoryBudgets() {
 //  TOOLBAR (category budgets + export), kept slim above the daily chart
 // =====================================================================
 function ensureToolbar() {
-  let bar = document.getElementById('ui-toolbar');
-  if (bar) return bar;
+  const bar = document.getElementById('quick-actions');
+  if (bar.dataset.ready) return bar;
+  bar.dataset.ready = '1';
   injectUiStyles();
-  // remove the old big category card if an earlier version left one behind
-  const old = document.getElementById('cat-budget-card');
-  if (old) old.remove();
-
-  bar = document.createElement('div');
-  bar.id = 'ui-toolbar';
-  bar.className = 'ui-toolbar span-2';
   bar.innerHTML =
-    '<button class="ui-btn" id="btn-cat-budgets">Category budgets<span class="ui-badge" id="cb-badge" hidden></span></button>' +
-    '<button class="ui-btn" id="btn-export">Export</button>';
+    '<button class="qa-btn" id="btn-cat-budgets"><span class="qa-ico">🎯</span><span>Budgets</span><span class="ui-badge" id="cb-badge" hidden></span></button>' +
+    '<button class="qa-btn" id="btn-insights"><span class="qa-ico">💡</span><span>Insights</span></button>';
   bar.querySelector('#btn-cat-budgets').onclick = openCategoryBudgets;
-  bar.querySelector('#btn-export').onclick = openExportMenu;
-  document.getElementById('barChart').closest('.card').insertAdjacentElement('beforebegin', bar);
+  bar.querySelector('#btn-insights').onclick = openInsights;
   return bar;
 }
 
@@ -1176,6 +1218,163 @@ function updateToolbar(monthExpenses) {
   badge.hidden = alerts === 0;
   badge.textContent = alerts;
   badge.className = 'ui-badge' + (over ? ' danger' : '');
+}
+
+// =====================================================================
+//  SAFE TO SPEND TODAY
+//  Turns the monthly budget into a daily allowance, plus a simple end-of-month projection.
+// =====================================================================
+function updateSafeToSpend(monthExpenses, monthTotal) {
+  const card = document.getElementById('progress-fill').closest('.hero');
+  let box = document.getElementById('safe-box');
+  if (!box) {
+    injectUiStyles();
+    box = document.createElement('div');
+    box.id = 'safe-box';
+    card.appendChild(box);
+  }
+  box.className = 'safe-box';
+  box.hidden = false;
+
+  const money = n => '₹' + Math.round(Math.abs(n)).toLocaleString('en-IN');
+  const show = (main, mainCls, subs) => {
+    box.innerHTML = '<div class="safe-main ' + mainCls + '">' + main + '</div>' +
+      subs.map(x => '<div class="safe-sub ' + (x.cls || '') + '">' + x.text + '</div>').join('');
+  };
+
+  const budget = getBudget();
+  const now = new Date();
+  const viewing = monthStrOf(viewDate);
+  const thisMonth = monthStrOf(now);
+
+  if (viewing > thisMonth) { box.hidden = true; return; }          // future month: nothing to say
+
+  if (!(budget > 0)) {
+    if (viewing === thisMonth) show('Safe to spend today', '', [{ text: 'Set a budget to see how much you can spend each day.' }]);
+    else box.hidden = true;
+    return;
+  }
+
+  if (viewing < thisMonth) {                                          // past month: how did it end?
+    const diff = budget - monthTotal;
+    if (diff >= 0) show('Finished ' + money(diff) + ' under budget', '', []);
+    else show('Finished ' + money(diff) + ' over budget', 'danger', []);
+    return;
+  }
+
+  // current month
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const day = now.getDate();
+  const daysLeft = daysInMonth - day + 1;                             // today included
+  const today = todayStr();
+  const spentToday = monthExpenses.filter(e => e.date === today).reduce((s, e) => s + e.amount, 0);
+  const spentBefore = monthTotal - spentToday;
+  const remaining = budget - monthTotal;
+  const dailyShare = (budget - spentBefore) / daysLeft;               // today's fair share
+  const todayLeft = dailyShare - spentToday;
+
+  const subs = [];
+  if (remaining > 0) {
+    subs.push({ text: money(remaining) + ' left for ' + daysLeft + (daysLeft === 1 ? ' day' : ' days') +
+                      ' · about ' + money(remaining / daysLeft) + ' a day' });
+  }
+  if (day >= 3) {                                                     // too early to project on days 1-2
+    const diff = (monthTotal / day) * daysInMonth - budget;
+    subs.push(diff > 0
+      ? { text: '📈 At this pace you will end the month about ' + money(diff) + ' over budget', cls: 'warn' }
+      : { text: '✅ At this pace you will end the month about ' + money(diff) + ' under budget' });
+  }
+
+  if (remaining < 0) show('🚨 Over budget by ' + money(remaining), 'danger', subs);
+  else if (remaining === 0) show('🚨 Budget fully used', 'danger', subs);
+  else if (todayLeft <= 0) show("Today's share is used up", 'warn', subs);
+  else show('Safe to spend today: ' + money(todayLeft), todayLeft < dailyShare * 0.25 ? 'warn' : '', subs);
+}
+
+// =====================================================================
+//  INSIGHTS: worth it vs regret
+// =====================================================================
+function openInsights() {
+  const monthStr = monthStrOf(viewDate);
+  const { body, close } = openModal('Insights · ' + monthLabelOf(viewDate), { wide: true });
+  const money = n => '₹' + n.toFixed(2);
+
+  function draw() {
+    const rows = allExpenses.filter(e => e.date.slice(0, 7) === monthStr);
+    const sum = { worth: 0, regret: 0, none: 0 };
+    rows.forEach(e => { sum[e.verdict === 'worth' || e.verdict === 'regret' ? e.verdict : 'none'] += e.amount; });
+    const total = sum.worth + sum.regret + sum.none;
+    const pct = n => total > 0 ? Math.round((n / total) * 100) : 0;
+
+    let html =
+      '<div class="ui-list-top"><button class="ui-btn" id="in-back">← Back</button>' +
+      '<div class="ui-list-sum">' + rows.length + ' expenses · ' + money(total) + '</div></div>';
+
+    if (!rows.length) {
+      body.innerHTML = html + '<div class="muted small">No expenses this month.</div>';
+      body.querySelector('#in-back').onclick = close;
+      return;
+    }
+
+    html +=
+      '<div class="ui-bar">' +
+        '<div style="width:' + pct(sum.worth) + '%;background:#27ae60"></div>' +
+        '<div style="width:' + pct(sum.regret) + '%;background:#d62828"></div>' +
+      '</div>' +
+      '<div class="ui-leg"><span>👍 Worth it</span><span>' + money(sum.worth) + ' · ' + pct(sum.worth) + '%</span></div>' +
+      '<div class="ui-leg"><span>👎 Regret</span><span>' + money(sum.regret) + ' · ' + pct(sum.regret) + '%</span></div>' +
+      '<div class="ui-leg"><span>Not rated yet</span><span>' + money(sum.none) + ' · ' + pct(sum.none) + '%</span></div>';
+
+    const byCat = {};
+    rows.filter(e => e.verdict === 'regret').forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+    const top = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    if (top.length) {
+      html += '<div class="ui-sec">WHERE YOU REGRET MOST</div>' +
+        top.map(([c, v]) => '<div class="ui-leg"><span>' + esc(c) + '</span><span>' + money(v) + '</span></div>').join('');
+    }
+
+    const unrated = rows.filter(e => !e.verdict).sort(newestFirst);
+    html += '<div class="ui-sec">RATE YOUR EXPENSES' + (unrated.length ? ' (' + unrated.length + ' LEFT)' : '') + '</div>';
+    if (!unrated.length) html += '<div class="ui-hint">Everything this month is rated.</div>';
+    unrated.slice(0, 8).forEach(e => {
+      html +=
+        '<div class="ui-exp-row" style="cursor:default">' +
+          '<div class="ui-exp-main"><div class="ui-exp-title"><span class="ui-exp-cat">' + esc(e.category) + '</span>' +
+            (e.description ? ' — ' + esc(e.description) : '') + '</div>' +
+            '<div class="ui-exp-meta">' + esc(e.date) + ' · ' + money(e.amount) + '</div></div>' +
+          '<div class="ui-exp-right">' +
+            '<button class="ui-btn" data-id="' + e.id + '" data-v="worth" title="Worth it">👍</button>' +
+            '<button class="ui-btn" data-id="' + e.id + '" data-v="regret" title="Regret">👎</button>' +
+          '</div>' +
+        '</div>';
+    });
+    if (unrated.length > 8) html += '<div class="ui-hint">' + (unrated.length - 8) + ' more. They appear as you rate these.</div>';
+    html += '<div class="ui-error" id="in-error"></div>';
+
+    body.innerHTML = html;
+    body.querySelector('#in-back').onclick = close;
+  }
+  draw();
+
+  body.addEventListener('click', async ev => {
+    const btn = ev.target.closest('[data-v]');
+    if (!btn) return;
+    const e = allExpenses.find(x => x.id === parseInt(btn.dataset.id, 10));
+    if (!e) return;
+    btn.disabled = true;
+    const r = await api('/api/expenses/' + e.id, jsonOpts('PUT', {
+      amount: e.amount, category: e.category, description: e.description, date: e.date, verdict: btn.dataset.v
+    }));
+    if (!r.ok) {
+      draw();
+      const er = body.querySelector('#in-error');
+      if (er) er.textContent = r.data.error || 'Could not save';
+      return;
+    }
+    e.verdict = btn.dataset.v;
+    draw();
+    renderAll();
+  });
 }
 
 // =====================================================================
@@ -1238,6 +1437,46 @@ function exportPdf() {
 }
 
 // ---- Start ----
+// Optional "How do you feel about it?" field in the Add form (it can also be set later in Insights)
+(function () {
+  const sel = document.createElement('select');
+  sel.id = 'verdict';
+  sel.className = 'note-input';
+  sel.innerHTML = '<option value="">Rate it later (optional)</option>' +
+                  '<option value="worth">👍 Worth it</option><option value="regret">👎 Regret</option>';
+  document.getElementById('description').insertAdjacentElement('afterend', sel);
+})();
+
+// ---- Bottom navigation: Home / Expenses / Analytics / Settings ----
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  window.scrollTo(0, 0);
+  if (name === 'analytics') renderAll();   // draw the charts now that they are visible
+}
+
+// ---- Add expense sheet (the + button) ----
+function openAddSheet() {
+  document.getElementById('add-sheet').classList.add('open');
+  document.body.classList.add('no-scroll');
+  setTimeout(() => document.getElementById('amount').focus(), 150);
+}
+function closeAddSheet() {
+  document.getElementById('add-sheet').classList.remove('open');
+  document.body.classList.remove('no-scroll');
+}
+document.getElementById('add-sheet').addEventListener('mousedown', ev => {
+  if (ev.target.id === 'add-sheet') closeAddSheet();
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeAddSheet(); });
+
+document.getElementById('filter-chips').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-cat]');
+  if (!b) return;
+  expenseFilter = b.dataset.cat;
+  renderAll();
+});
+
 document.getElementById('month-label').addEventListener('click', openMonthPicker);
 
 checkAuth().then(async ok => {
