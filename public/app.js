@@ -1218,9 +1218,11 @@ function ensureToolbar() {
   injectUiStyles();
   bar.innerHTML =
     '<button class="qa-btn" id="btn-cat-budgets"><span class="qa-ico">🎯</span><span>Budgets</span><span class="ui-badge" id="cb-badge" hidden></span></button>' +
-    '<button class="qa-btn" id="btn-insights"><span class="qa-ico">💡</span><span>Insights</span></button>';
+    '<button class="qa-btn" id="btn-insights"><span class="qa-ico">💡</span><span>Insights</span></button>' +
+    '<button class="qa-btn" id="btn-splits"><span class="qa-ico">🤝</span><span>Splits</span></button>';
   bar.querySelector('#btn-cat-budgets').onclick = openCategoryBudgets;
   bar.querySelector('#btn-insights').onclick = openInsights;
+  bar.querySelector('#btn-splits').onclick = () => openSplits();
   return bar;
 }
 

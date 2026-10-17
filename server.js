@@ -4,6 +4,7 @@ const pgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const { Pool } = require('pg');
+const { mountSplits, initSplitsDb } = require('./splitsRoutes');
 
 // ---- Database connection (external Postgres, survives restarts) ----
 const pool = new Pool({
@@ -84,6 +85,9 @@ async function initDb() {
     SELECT user_id, '0000-00', category, monthly_limit FROM category_budgets
     ON CONFLICT DO NOTHING
   `);
+
+  // Splits (shared groups)
+  await initSplitsDb(pool);
 }
 
 const ALLOWED_CATEGORIES = ['Food', 'Travel', 'Bills', 'Entertainment', 'Shopping', 'Health', 'Other'];
@@ -609,6 +613,9 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
     res.status(500).json({ error: 'Scan failed' });
   }
 });
+
+// ---- Splits (shared groups) ----
+mountSplits(app, pool, requireAuth, { ALLOWED_CATEGORIES, isValidDate });
 
 // ---- Friendly JSON errors (too-large body, bad JSON, anything unexpected) ----
 app.use((err, req, res, next) => {
