@@ -55,7 +55,7 @@ button { font-family: inherit; }
   padding: 20px 2px 12px;
 }
 .hello-small { font-size: 13px; color: var(--muted); }
-.hello-name { font-size: 22px; font-weight: 800; text-transform: capitalize; margin-top: 2px; }
+.hello-name { font-size: 22px; font-weight: 800; margin-top: 2px; }
 
 .icon-btn {
   width: 42px; height: 42px;
@@ -375,7 +375,7 @@ button { font-family: inherit; }
   cursor: pointer;
   transform: translateY(-24px);
   margin-bottom: -24px;
-  box-shadow: 0 10px 22px rgba(120, 160, 10, .4);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, .28);
 }
 .fab:active { transform: translateY(-22px) scale(.96); }
 
@@ -491,3 +491,25 @@ button { font-family: inherit; }
 
 /* nicer keyboard / tap focus */
 .add-form input:focus, .add-form select:focus { outline: 2px solid var(--bar-on); outline-offset: 0; border-color: transparent; }
+
+/* ---------- Colour themes (Settings > Theme color) ---------- */
+/* "forest" is the default and uses the values at the top of this file */
+[data-color="ocean"]  { --hero-1: #2468B8; --hero-2: #0B2B52; --lime: #5CE1E6; --on-lime: #04303A; --bar-on: #1F6FB8; --accent: #1F6FB8; }
+[data-color="sunset"] { --hero-1: #D9531E; --hero-2: #7C1D0A; --lime: #FFC857; --on-lime: #3B1A05; --bar-on: #D9480F; --accent: #D9480F; }
+[data-color="violet"] { --hero-1: #6A4BD6; --hero-2: #2B1A6B; --lime: #D6A8FF; --on-lime: #2A0E4D; --bar-on: #6D4FD9; --accent: #6D4FD9; }
+[data-color="rose"]   { --hero-1: #C9235F; --hero-2: #6B0F33; --lime: #FFB3CC; --on-lime: #4A0A22; --bar-on: #C2255C; --accent: #C2255C; }
+[data-theme="dark"][data-color="ocean"]  { --bar-on: #5CE1E6; --accent: #5CE1E6; }
+[data-theme="dark"][data-color="sunset"] { --bar-on: #FFC857; --accent: #FFC857; }
+[data-theme="dark"][data-color="violet"] { --bar-on: #D6A8FF; --accent: #D6A8FF; }
+[data-theme="dark"][data-color="rose"]   { --bar-on: #FFB3CC; --accent: #FFB3CC; }
+
+/* colour picker pop-up */
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.theme-opt {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 12px 6px; border-radius: 18px; border: 2px solid var(--border);
+  background: transparent; color: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.theme-opt.active { border-color: var(--bar-on); }
+.theme-dot { position: relative; width: 56px; height: 56px; border-radius: 18px; display: block; overflow: hidden; }
+.theme-dot i { position: absolute; right: 8px; bottom: 8px; width: 18px; height: 18px; border-radius: 50%; }

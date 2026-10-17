@@ -15,6 +15,7 @@ let barChart, pieChart;
 let allExpenses = [];
 let viewDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // day 1 avoids "Jan 31 + 1 month = March" bug
 let currentUser = '';
+let displayName = '';       // name shown on the home page (set in Settings)
 let categoryBudgets = {};   // limits for the month being viewed, e.g. { Food: 3000, Bills: 2000 }
 let monthlyBudget = 0;      // overall budget for the month being viewed
 let lastDateMonth = '';     // month the Add form's date was last set for
@@ -73,6 +74,26 @@ function toggleTheme() {
   if (currentUser) renderAll();      // charts pick up the new colours
 }
 applyTheme(localStorage.getItem('theme') || 'light');
+
+// ---- Colour themes (Settings > Theme color) ----
+const COLOR_THEMES = {
+  forest: { label: 'Forest', hero: '#1E5238', hero2: '#0F2E20', accent: '#C6F432' },
+  ocean:  { label: 'Ocean',  hero: '#2468B8', hero2: '#0B2B52', accent: '#5CE1E6' },
+  sunset: { label: 'Sunset', hero: '#D9531E', hero2: '#7C1D0A', accent: '#FFC857' },
+  violet: { label: 'Violet', hero: '#6A4BD6', hero2: '#2B1A6B', accent: '#D6A8FF' },
+  rose:   { label: 'Rose',   hero: '#C9235F', hero2: '#6B0F33', accent: '#FFB3CC' }
+};
+function applyColor(name) {
+  if (!COLOR_THEMES[name]) name = 'forest';
+  document.documentElement.setAttribute('data-color', name);
+  localStorage.setItem('color', name);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', COLOR_THEMES[name].hero2);
+  const st = document.getElementById('color-state');
+  if (st) st.textContent = COLOR_THEMES[name].label;
+  if (currentUser) renderAll();      // charts pick up the new colours
+}
+applyColor(localStorage.getItem('color') || 'forest');
 
 // =====================================================================
 //  MINIMAL MODAL (used by: edit expense, category budgets, month picker, export)
@@ -322,8 +343,8 @@ async function checkAuth() {
     return false;
   }
   currentUser = data.username;
-  const hn = document.getElementById('hello-name');
-  if (hn) hn.textContent = currentUser;
+  displayName = data.displayName || '';
+  updateGreeting();
   return true;
 }
 async function logout() {
@@ -1420,7 +1441,7 @@ function exportPdf() {
     'th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #ddd}th{background:#f3f3f3}' +
     'td.r,th.r{text-align:right}.total{font-weight:bold}h2{font-size:15px;margin:18px 0 6px}</style></head><body>' +
     '<h1>Expense report — ' + esc(title) + '</h1>' +
-    '<div class="sub">' + esc(currentUser) + ' · generated ' + esc(todayStr()) + '</div>' +
+    '<div class="sub">' + (displayName ? esc(displayName) + ' · ' : '') + 'generated ' + esc(todayStr()) + '</div>' +
     '<h2>By category</h2><table><tr><th>Category</th><th class="r">Amount (₹)</th></tr>' +
     Object.keys(byCat).map(c => '<tr><td>' + esc(c) + '</td><td class="r">' + byCat[c].toFixed(2) + '</td></tr>').join('') +
     '<tr class="total"><td>Total</td><td class="r">' + total.toFixed(2) + '</td></tr></table>' +
@@ -1446,6 +1467,70 @@ function exportPdf() {
                   '<option value="worth">👍 Worth it</option><option value="regret">👎 Regret</option>';
   document.getElementById('description').insertAdjacentElement('afterend', sel);
 })();
+
+// ---- Greeting: shows the name from Settings, never the login username ----
+function updateGreeting() {
+  const small = document.getElementById('hello-small');
+  const big = document.getElementById('hello-name');
+  if (displayName) {
+    small.hidden = false;
+    small.textContent = 'Welcome back,';
+    big.textContent = displayName;
+  } else {
+    small.hidden = true;
+    big.textContent = 'Welcome back 👋';
+  }
+  const st = document.getElementById('name-state');
+  if (st) st.textContent = displayName || 'Not set';
+}
+
+function openNameEditor() {
+  const { body, close } = openModal('Your name');
+  body.innerHTML =
+    '<label class="ui-field">Name shown on the home page' +
+      '<input id="nm-input" type="text" maxlength="30" placeholder="e.g. Dame" value="' + esc(displayName) + '"></label>' +
+    '<div class="ui-hint">Your login username is never shown. Leave it empty to show no name.</div>' +
+    '<div class="ui-error" id="nm-error"></div>' +
+    '<div class="ui-actions">' +
+      '<button class="ui-btn" id="nm-cancel">Cancel</button>' +
+      '<button class="ui-btn primary" id="nm-save">Save</button>' +
+    '</div>';
+  const input = body.querySelector('#nm-input');
+  setTimeout(() => input.focus(), 100);
+  body.querySelector('#nm-cancel').onclick = close;
+  const save = async () => {
+    const r = await api('/api/profile', jsonOpts('PUT', { displayName: input.value }));
+    if (!r.ok) { body.querySelector('#nm-error').textContent = r.data.error || 'Could not save'; return; }
+    displayName = r.data.displayName || '';
+    updateGreeting();
+    close();
+  };
+  body.querySelector('#nm-save').onclick = save;
+  input.addEventListener('keydown', ev => { if (ev.key === 'Enter') save(); });
+}
+
+function openThemePicker() {
+  const { body, close } = openModal('Theme color');
+  const current = document.documentElement.getAttribute('data-color') || 'forest';
+  body.innerHTML =
+    '<div class="theme-grid">' +
+      Object.entries(COLOR_THEMES).map(([k, t]) =>
+        '<button class="theme-opt' + (k === current ? ' active' : '') + '" data-c="' + k + '">' +
+          '<span class="theme-dot" style="background:linear-gradient(135deg,' + t.hero + ',' + t.hero2 + ')">' +
+            '<i style="background:' + t.accent + '"></i></span>' +
+          '<span>' + t.label + '</span></button>').join('') +
+    '</div>' +
+    '<div class="ui-hint" style="margin-top:12px">Works in both light and dark mode.</div>' +
+    '<div class="ui-actions"><button class="ui-btn primary" id="th-done">Done</button></div>';
+  body.addEventListener('click', ev => {
+    const b = ev.target.closest('[data-c]');
+    if (b) {
+      applyColor(b.dataset.c);
+      body.querySelectorAll('.theme-opt').forEach(x => x.classList.toggle('active', x === b));
+    }
+    if (ev.target.id === 'th-done') close();
+  });
+}
 
 // ---- Bottom navigation: Home / Expenses / Analytics / Settings ----
 function showView(name) {

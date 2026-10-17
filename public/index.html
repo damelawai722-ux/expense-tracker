@@ -17,7 +17,7 @@
   <!-- Top bar -->
   <header class="app-header">
     <div class="hello">
-      <div class="hello-small">Welcome back,</div>
+      <div class="hello-small" id="hello-small">Welcome back,</div>
       <div class="hello-name" id="hello-name">…</div>
     </div>
     <button id="theme-toggle" class="icon-btn" onclick="toggleTheme()" aria-label="Switch light or dark theme">🌙</button>
@@ -107,6 +107,21 @@
       <div class="section-head first"><h2>Settings</h2></div>
 
       <div class="settings-list">
+        <button class="set-row" onclick="openNameEditor()">
+          <span class="set-ico">🙂</span>
+          <span class="set-text"><b>Your name</b><small id="name-state">Not set</small></span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-row" onclick="openThemePicker()">
+          <span class="set-ico">🎨</span>
+          <span class="set-text"><b>Theme color</b><small id="color-state">Forest</small></span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-row" onclick="toggleTheme()">
+          <span class="set-ico">🌙</span>
+          <span class="set-text"><b>Dark mode</b><small id="theme-state">Off</small></span>
+          <span class="chev">›</span>
+        </button>
         <button class="set-row" onclick="editBudget()">
           <span class="set-ico">💰</span>
           <span class="set-text"><b>Monthly budget</b><small id="settings-budget-val">Not set</small></span>
@@ -125,11 +140,6 @@
         <button class="set-row" onclick="openExportMenu()">
           <span class="set-ico">⬇️</span>
           <span class="set-text"><b>Export data</b><small>CSV or PDF</small></span>
-          <span class="chev">›</span>
-        </button>
-        <button class="set-row" onclick="toggleTheme()">
-          <span class="set-ico">🌙</span>
-          <span class="set-text"><b>Dark mode</b><small id="theme-state">Off</small></span>
           <span class="chev">›</span>
         </button>
         <button class="set-row danger" onclick="logout()">

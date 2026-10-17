@@ -33,6 +33,8 @@ async function initDb() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id)');
   // "Worth it / Regret" rating for each expense (empty = not rated yet)
   await pool.query('ALTER TABLE expenses ADD COLUMN IF NOT EXISTS verdict TEXT');
+  // Name shown on the home page (the login username is never shown there)
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT');
 
   // OLD tables (one budget for all months). Kept only so existing data can be carried over.
   await pool.query(`
@@ -228,11 +230,32 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-app.get('/api/me', (req, res) => {
-  if (req.session.userId) {
-    res.json({ loggedIn: true, username: req.session.username });
-  } else {
-    res.json({ loggedIn: false });
+app.get('/api/me', async (req, res) => {
+  if (!req.session.userId) return res.json({ loggedIn: false });
+  try {
+    const { rows } = await pool.query('SELECT display_name FROM users WHERE id = $1', [req.session.userId]);
+    res.json({
+      loggedIn: true,
+      username: req.session.username,
+      displayName: (rows[0] && rows[0].display_name) || ''
+    });
+  } catch (e) {
+    console.error(e);
+    res.json({ loggedIn: true, username: req.session.username, displayName: '' });
+  }
+});
+
+// Change the name shown on the home page. An empty name clears it.
+app.put('/api/profile', requireAuth, async (req, res) => {
+  const raw = String((req.body && req.body.displayName) || '');
+  const name = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  if (name.length > 30) return res.status(400).json({ error: 'Name can be at most 30 characters' });
+  try {
+    await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [name || null, req.session.userId]);
+    res.json({ displayName: name });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
