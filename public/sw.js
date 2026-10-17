@@ -7,7 +7,15 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  event.respondWith(fetch(event.request));
+  const req = event.request;
+  // The live-updates connection must go straight to the network. Wrapping a
+  // never-ending stream in respondWith() makes some browsers abort it.
+  if (req.method !== 'GET' ||
+      req.url.indexOf('/api/splits/stream') !== -1 ||
+      (req.headers.get('accept') || '').indexOf('text/event-stream') !== -1) {
+    return;
+  }
+  event.respondWith(fetch(req));
 });
 
 // ---- Push notifications (Splits) ----

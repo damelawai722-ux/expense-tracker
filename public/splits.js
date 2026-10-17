@@ -85,6 +85,12 @@
         // while typing in a form we never redraw; the next screen fetches fresh data anyway
       }, 250);
     };
+    // Safety net: if the live connection is not open (blocked, dropped, old browser),
+    // quietly re-check every 5 seconds while the screen is visible.
+    const poll = setInterval(() => {
+      if (!ctx.body.isConnected) { clearInterval(poll); es.close(); return; }
+      if (document.visibilityState === 'visible' && es.readyState !== 1) refresh(null);
+    }, 5000);
     es.onopen = () => { if (opened) refresh(null); opened = true; };   // reconnected: catch up on anything missed
     es.onmessage = ev => {
       if (!ctx.body.isConnected) { es.close(); return; }               // Splits was closed
