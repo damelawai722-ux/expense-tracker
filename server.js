@@ -4,7 +4,7 @@ const pgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const { Pool } = require('pg');
-const { mountSplits, initSplitsDb } = require('./splitsRoutes');
+const { mountSplits, initSplitsDb } = require('./SplitsRoutes');
 
 // ---- Database connection (external Postgres, survives restarts) ----
 const pool = new Pool({
