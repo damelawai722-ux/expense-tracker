@@ -163,6 +163,7 @@ function mountSplits(app, pool, requireAuth, helpers) {
   const streams = new Map();
 
   const rs = p => '₹' + (p / 100).toFixed(2);
+  const INSTANCE_ID = crypto.randomBytes(6).toString('hex');   // tells this server's own messages apart
 
   // Send the "something changed" ping to the phones connected to THIS server process.
   async function deliverLocal(groupId) {
@@ -179,7 +180,7 @@ function mountSplits(app, pool, requireAuth, helpers) {
   // Postgres LISTEN/NOTIFY: every change is announced through the database, and EVERY
   // server instance hears it and pings its own connected phones. So live updates keep
   // working even if Render runs more than one copy of your app.
-  let listenerUp = false, listenerRetry = null;
+  let listenerUp = false, listenerRetry = null, listenTestOk = false;
   async function startListener() {
     const client = new Client(pool.options);
     let dead = false;
@@ -193,12 +194,26 @@ function mountSplits(app, pool, requireAuth, helpers) {
     client.on('error', fail);
     client.on('end', fail);
     client.on('notification', msg => {
-      try { const p = JSON.parse(msg.payload); if (p && p.g) deliverLocal(p.g); } catch (e) { /* ignore */ }
+      try {
+        const p = JSON.parse(msg.payload);
+        if (!p) return;
+        if (p.test && p.i === INSTANCE_ID) { listenTestOk = true; return; }
+        if (p.i === INSTANCE_ID) return;        // this server already delivered it directly
+        if (p.g) deliverLocal(p.g);             // another server copy announced a change
+      } catch (e) { /* ignore */ }
     });
     try {
       await client.connect();
       await client.query('LISTEN split_changes');
       listenerUp = true;
+      // Self-test: does the database really deliver notifications to us?
+      listenTestOk = false;
+      await pool.query("SELECT pg_notify('split_changes', $1)", [JSON.stringify({ test: 1, i: INSTANCE_ID })]);
+      setTimeout(() => {
+        if (!listenTestOk) console.warn('[splits] LISTEN/NOTIFY is NOT delivering on this database (probably a pooled connection). ' +
+          'Live updates still work on a single server instance; with several instances use the direct, non-pooled database URL.');
+        else console.log('[splits] LISTEN/NOTIFY self-test passed');
+      }, 4000);
     } catch (e) { console.error('[splits] listener error:', e.message); fail(); }
   }
   startListener();
@@ -231,10 +246,11 @@ function mountSplits(app, pool, requireAuth, helpers) {
 
   // Called after every change: live-update open screens + notify the others
   async function changed(groupId, actorId, what) {
-    try {
-      if (listenerUp) await pool.query("SELECT pg_notify('split_changes', $1)", [JSON.stringify({ g: groupId })]);
-      else await deliverLocal(groupId);                      // listener down: at least this server's phones
-    } catch (e) { console.error(e); await deliverLocal(groupId); }
+    deliverLocal(groupId);                                   // phones on this server: instant, no database channel needed
+    if (listenerUp) {                                        // phones on any OTHER server copy
+      pool.query("SELECT pg_notify('split_changes', $1)", [JSON.stringify({ g: groupId, i: INSTANCE_ID })])
+        .catch(e => console.error('[splits] notify failed:', e.message));
+    }
     sendPush(groupId, actorId, what);
   }
 
