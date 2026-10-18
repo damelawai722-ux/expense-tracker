@@ -39,6 +39,62 @@
       .sp-check input { width:auto; margin:0; }
       .sp-preview { font-size:13px; font-weight:600; margin:8px 0; min-height:18px; }
       .sp-note { font-size:12px; color:var(--muted); margin-top:10px; }
+
+      .sp-gname { font-size:22px; font-weight:800; margin:2px 0 10px; overflow-wrap:anywhere; }
+      .sp-title { font-size:12px; font-weight:800; letter-spacing:1.2px; color:var(--muted); margin:22px 0 10px; }
+      .sp-empty { padding:16px; text-align:center; font-size:14px; color:var(--muted); border:1px dashed var(--border); border-radius:14px; }
+
+      .sp-av { width:34px; height:34px; border-radius:50%; display:inline-grid; place-items:center; flex-shrink:0;
+               color:#fff; font-weight:800; font-size:15px; }
+      .sp-av.sm { width:22px; height:22px; font-size:11px; }
+
+      .sp-members { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+      .sp-mchip { display:inline-flex; align-items:center; gap:8px; padding:5px 14px 5px 5px; border-radius:999px;
+                  background:var(--bg); border:1px solid var(--border); font-size:14px; max-width:100%; }
+      .sp-mchip b { font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .sp-mchip.me { border-color:var(--bar-on); }
+      .sp-hero span { display:block; margin-top:6px; font-size:12px; opacity:.75; }
+
+      .sp-flow { border:1px solid var(--border); background:var(--bg); border-radius:18px; padding:14px; margin-bottom:10px; }
+      .sp-flow.out { border-left:4px solid var(--danger); }
+      .sp-flow.in { border-left:4px solid #1f9d63; }
+      .sp-flow-row { display:grid; grid-template-columns:1fr minmax(92px, 1.1fr) 1fr; align-items:center; gap:6px; }
+      .sp-person { display:flex; flex-direction:column; align-items:center; text-align:center; gap:4px; min-width:0; }
+      .sp-person .sp-av { width:42px; height:42px; font-size:18px; }
+      .sp-person span { font-weight:700; font-size:14px; max-width:100%; overflow-wrap:anywhere; line-height:1.2; }
+      .sp-person small { font-size:11px; color:var(--muted); }
+      .sp-arrow { display:flex; flex-direction:column; align-items:center; gap:6px; }
+      .sp-arrow b { font-size:16px; font-weight:800; white-space:nowrap; }
+      .sp-arrow i { display:block; width:100%; height:2px; background:var(--muted); position:relative; border-radius:2px; }
+      .sp-arrow i::after { content:''; position:absolute; right:-1px; top:-4px; border-left:8px solid var(--muted);
+                           border-top:5px solid transparent; border-bottom:5px solid transparent; }
+      .sp-mark { width:100%; margin-top:12px; padding:10px; font-weight:700; }
+
+      .sp-rank { padding:12px 0; border-top:1px solid var(--border); }
+      .sp-rank:first-of-type { border-top:0; padding-top:0; }
+      .sp-rank-top { display:flex; align-items:center; gap:10px; }
+      .sp-medal { width:24px; text-align:center; font-size:18px; color:var(--muted); font-weight:700; }
+      .sp-rname { flex:1; font-weight:700; font-size:15px; min-width:0; overflow-wrap:anywhere; }
+      .sp-bar { height:8px; border-radius:8px; background:var(--border); margin:9px 0 6px; overflow:hidden; }
+      .sp-bar i { display:block; height:100%; background:var(--bar-on); border-radius:8px; transition:width .3s; }
+      .sp-rstat { font-size:12px; font-weight:700; color:var(--muted); }
+      .sp-rstat.get { color:#1f9d63; }
+      .sp-rstat.owe { color:var(--danger); }
+
+      .sp-exp { border:1px solid var(--border); background:var(--bg); border-radius:16px; padding:14px; margin-bottom:10px; }
+      .sp-exp-top { display:flex; justify-content:space-between; gap:12px; font-size:16px; }
+      .sp-exp-title { font-weight:700; overflow-wrap:anywhere; }
+      .sp-exp-meta { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px; color:var(--muted); }
+      .sp-exp-meta b { color:var(--text); }
+      .sp-pills { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+      .sp-pill { font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px; border:1px solid var(--border); color:var(--muted); }
+      .sp-pill.mine { color:var(--text); border-color:var(--bar-on); }
+
+      .sp-live { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:22px;
+                 font-size:13px; font-weight:600; color:var(--muted); }
+      .sp-dot { width:8px; height:8px; border-radius:50%; background:#1f9d63; box-shadow:0 0 0 0 rgba(31,157,99,.6);
+                animation:spPulse 2s infinite; }
+      @keyframes spPulse { 70% { box-shadow:0 0 0 7px rgba(31,157,99,0); } 100% { box-shadow:0 0 0 0 rgba(31,157,99,0); } }
     `;
     document.head.appendChild(s);
   }
@@ -50,6 +106,12 @@
     t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 3000);
+  }
+
+  const AV_COLORS = ['#2E9E6B', '#3B82F6', '#E0822B', '#8B5CF6', '#E0507A', '#14A3A3', '#B8860B', '#E05252'];
+  function avatar(m, small) {
+    const initial = String(m.name || '?').trim().charAt(0).toUpperCase() || '?';
+    return '<span class="sp-av' + (small ? ' sm' : '') + '" style="background:' + AV_COLORS[m.id % AV_COLORS.length] + '">' + esc(initial) + '</span>';
   }
 
   function dateLabel(d) {
@@ -247,56 +309,102 @@
     const nameOf = id => id === me ? 'You' : ((d.members.find(m => m.id === id) || {}).name || 'Someone');
     const myBal = d.balances[me] || 0;
 
+    const memberOf = id => d.members.find(m => m.id === id) || { id, name: 'Someone' };
+    const dn = id => id === me ? 'You' : memberOf(id).name;           // display name
+    const av = (id, small) => avatar(memberOf(id), small);
+
     const heroLabel = myBal > 0 ? 'YOU GET BACK' : myBal < 0 ? 'YOU OWE' : 'YOU ARE ALL SETTLED';
     const heroAmt = myBal === 0 ? '✓' : money(myBal);
+    const totalSpent = d.expenses.reduce((s, e) => s + e.amount, 0);
 
+    // Members: you first, everyone as a clear chip with a coloured initial
+    const membersHtml = [...d.members].sort((a, b) => (b.id === me) - (a.id === me)).map(m =>
+      `<span class="sp-mchip${m.id === me ? ' me' : ''}">${av(m.id)}<b>${esc(dn(m.id))}</b></span>`).join('');
+
+    // Who pays whom: person → arrow with amount → person
     const transfersHtml = d.transfers.length
-      ? d.transfers.map((t, i) =>
-          '<div class="sp-pay"><span>' + (t.from === me ? '<b>You</b>' : esc(nameOf(t.from))) + ' pay' + (t.from === me ? '' : 's') + ' ' +
-          (t.to === me ? '<b>you</b>' : esc(nameOf(t.to))) + ' <b>' + money(t.amount) + '</b></span>' +
-          ((t.from === me || t.to === me)
-            ? '<button class="ui-btn" data-pay="' + i + '">Mark as paid</button>' : '') + '</div>').join('')
-      : '<div class="muted small">Nobody owes anything.</div>';
+      ? d.transfers.map((t, i) => {
+          const involved = t.from === me || t.to === me;
+          const cls = t.from === me ? ' out' : t.to === me ? ' in' : '';
+          return `<div class="sp-flow${cls}">
+            <div class="sp-flow-row">
+              <div class="sp-person">${av(t.from)}<span>${esc(dn(t.from))}</span><small>pays</small></div>
+              <div class="sp-arrow"><b>${money(t.amount)}</b><i></i></div>
+              <div class="sp-person">${av(t.to)}<span>${esc(dn(t.to))}</span><small>receives</small></div>
+            </div>
+            ${involved ? `<button class="ui-btn sp-mark" data-pay="${i}">Mark as paid</button>` : ''}
+          </div>`;
+        }).join('')
+      : '<div class="sp-empty">🎉 Nobody owes anything. Everyone is even.</div>';
 
+    // Who paid the most: ranked, with bars
+    const paidBy = {};
+    d.members.forEach(m => { paidBy[m.id] = 0; });
+    d.expenses.forEach(e => { paidBy[e.paid_by] = (paidBy[e.paid_by] || 0) + e.amount; });
+    const ranked = [...d.members].sort((a, b) => paidBy[b.id] - paidBy[a.id] || a.name.localeCompare(b.name));
+    const maxPaid = Math.max(1, ...ranked.map(m => paidBy[m.id]));
+    const medals = ['🥇', '🥈', '🥉'];
+    const rankHtml = totalSpent > 0 ? ranked.map((m, i) => {
+      const bal = d.balances[m.id] || 0;
+      const stat = bal > 0 ? `<span class="sp-rstat get">gets back ${money(bal)}</span>`
+        : bal < 0 ? `<span class="sp-rstat owe">owes ${money(bal)}</span>`
+        : '<span class="sp-rstat">settled</span>';
+      const w = paidBy[m.id] > 0 ? Math.max(3, Math.round(paidBy[m.id] / maxPaid * 100)) : 0;
+      return `<div class="sp-rank">
+        <div class="sp-rank-top"><span class="sp-medal">${paidBy[m.id] > 0 && i < 3 ? medals[i] : (i + 1)}</span>${av(m.id)}
+          <span class="sp-rname">${esc(dn(m.id))}</span><b>${money(paidBy[m.id])}</b></div>
+        <div class="sp-bar"><i style="width:${w}%"></i></div>
+        ${stat}
+      </div>`;
+    }).join('') : '';
+
+    // Expense cards
     const expHtml = d.expenses.length
       ? d.expenses.map(e => {
           const mine = e.shares.find(s => s.user_id === me);
-          return '<div class="sp-item"><div class="sp-item-head"><span>' + esc(e.title) + '</span><span>' + money(e.amount) + '</span></div>' +
-            '<div class="sp-sub">' + esc(nameOf(e.paid_by)) + ' paid · ' + dateLabel(e.date) + ' · split ' + e.shares.length + ' way' + (e.shares.length === 1 ? '' : 's') +
-            (mine ? ' · your share ' + money(mine.share) : ' · not in this split') + '</div>' +
-            '<div class="sp-item-actions">' +
-              (mine && mine.share > 0
+          return `<div class="sp-exp">
+            <div class="sp-exp-top"><span class="sp-exp-title">${esc(e.title)}</span><b>${money(e.amount)}</b></div>
+            <div class="sp-exp-meta">${av(e.paid_by, true)}<span><b>${esc(dn(e.paid_by))}</b> paid · ${dateLabel(e.date)}</span></div>
+            <div class="sp-pills">
+              <span class="sp-pill">Split ${e.shares.length} way${e.shares.length === 1 ? '' : 's'}</span>
+              ${mine ? `<span class="sp-pill mine">Your share ${money(mine.share)}</span>` : '<span class="sp-pill">You’re not in this split</span>'}
+            </div>
+            <div class="sp-item-actions">
+              ${mine && mine.share > 0
                 ? (e.addedToTracker
                     ? '<span class="sp-sub">✓ In your expenses</span>'
-                    : '<button class="ui-btn" data-track="' + e.id + '" data-share="' + mine.share + '" data-title="' + esc(e.title) + '">Add my share to my expenses</button>')
-                : '') +
-              (e.added_by === me ? '<button class="ui-btn danger" data-del="' + e.id + '">Delete</button>' : '') +
-            '</div></div>';
+                    : `<button class="ui-btn" data-track="${e.id}" data-share="${mine.share}" data-title="${esc(e.title)}">＋ Add to my expenses</button>`)
+                : ''}
+              ${e.added_by === me ? `<button class="ui-btn danger" data-del="${e.id}">Delete</button>` : ''}
+            </div>
+          </div>`;
         }).join('')
-      : '<div class="muted small">Nothing added yet.</div>';
+      : '<div class="sp-empty">Nothing added yet. Tap “Add expense to split” to start.</div>';
 
     const setHtml = d.settlements.length
-      ? d.settlements.map(s =>
-          '<div class="sp-item"><div class="sp-item-head"><span>' + esc(nameOf(s.from_user)) + ' paid ' + esc(nameOf(s.to_user)) + '</span><span>' + money(s.amount) + '</span></div>' +
-          (s.created_by === me ? '<div class="sp-item-actions"><button class="ui-btn danger" data-undo="' + s.id + '">Undo</button></div>' : '') +
-          '</div>').join('')
+      ? d.settlements.map(s => `<div class="sp-exp">
+          <div class="sp-exp-top"><span class="sp-exp-title">${esc(dn(s.from_user))} → ${esc(dn(s.to_user))}</span><b>${money(s.amount)}</b></div>
+          <div class="sp-exp-meta"><span>Marked as paid</span></div>
+          ${s.created_by === me ? `<div class="sp-item-actions"><button class="ui-btn danger" data-undo="${s.id}">Undo</button></div>` : ''}
+        </div>`).join('')
       : '';
 
-    body.innerHTML =
-      '<div class="sp-top"><button class="sp-back" id="sp-b">‹ All groups</button>' +
-        '<button class="ui-btn" id="sp-share">Code <span class="sp-code">' + esc(d.group.code) + '</span></button></div>' +
-      '<div class="sp-name" style="font-size:18px">' + esc(d.group.name) + '</div>' +
-      '<div class="sp-sub" style="margin-bottom:12px">' + d.members.map(m => esc(m.id === me ? 'You' : m.name)).join(', ') + '</div>' +
-      '<div class="sp-hero"><small>' + heroLabel + '</small><b>' + heroAmt + '</b></div>' +
-      '<div class="ui-sec">WHO PAYS WHOM</div>' + transfersHtml +
-      '<div class="ui-actions" style="justify-content:flex-start"><button class="ui-btn primary" id="sp-add">+ Add expense to split</button>' +
-        '<button class="ui-btn" id="sp-refresh">Refresh</button></div>' +
-      '<div class="ui-sec">EXPENSES</div>' + expHtml +
-      (setHtml ? '<div class="ui-sec">PAYMENTS MADE</div>' + setHtml : '') +
-      '<div class="sp-note">Updates when you open or refresh. Only the person who added an entry can delete it.</div>';
+    body.innerHTML = `
+      <div class="sp-top"><button class="sp-back" id="sp-b">‹ All groups</button>
+        <button class="ui-btn" id="sp-share">Invite code <span class="sp-code">${esc(d.group.code)}</span></button></div>
+      <div class="sp-gname">${esc(d.group.name)}</div>
+      <div class="sp-members">${membersHtml}</div>
+      <div class="sp-hero"><small>${heroLabel}</small><b>${heroAmt}</b>
+        <span>Group total ${money(totalSpent)} · ${d.members.length} ${d.members.length === 1 ? 'person' : 'people'}</span></div>
+      <div class="ui-actions" style="justify-content:flex-start;margin-top:12px"><button class="ui-btn primary" id="sp-add">+ Add expense to split</button></div>
+      <div class="sp-title">WHO PAYS WHOM</div>${transfersHtml}
+      ${rankHtml ? `<div class="sp-title">WHO PAID THE MOST</div>${rankHtml}` : ''}
+      <div class="sp-title">EXPENSES</div>${expHtml}
+      ${setHtml ? `<div class="sp-title">PAYMENTS MADE</div>${setHtml}` : ''}
+      <div class="sp-live"><span class="sp-dot"></span>Live · changes appear instantly for everyone</div>
+      <div class="sp-note" style="text-align:center">Only the person who added an entry can delete it.</div>`;
 
     body.querySelector('#sp-b').onclick = () => showList(ctx);
-    body.querySelector('#sp-refresh').onclick = () => showGroup(ctx, gid);
     body.querySelector('#sp-add').onclick = () => showAddExpense(ctx, d);
     body.querySelector('#sp-share').onclick = async () => {
       const text = 'Join my group "' + d.group.name + '" on Expense Tracker. Invite code: ' + d.group.code;
