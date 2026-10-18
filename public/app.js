@@ -180,6 +180,38 @@ function injectUiStyles() {
     .cb-toast.high { background: #d35400; }
     .cb-toast.danger { background: #d62828; }
     #month-label { cursor: pointer; }
+
+    /* search + select on the Expenses tab */
+    .search-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+    .search-box { position: relative; flex: 1; min-width: 0; }
+    .search-box svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px;
+                      stroke: var(--muted); fill: none; stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+    .search-box input { width: 100%; min-width: 0; font: inherit; font-size: 16px; padding: 12px 40px 12px 40px;
+                        border-radius: 999px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); }
+    .search-box input::-webkit-search-cancel-button { display: none; }
+    .search-box input:focus { outline: 2px solid var(--bar-on); border-color: transparent; }
+    .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px;
+                    border-radius: 50%; border: 0; background: var(--bg); color: var(--muted); cursor: pointer; font-size: 13px; }
+    .search-clear[hidden] { display: none; }
+    .expense-row .sel-box { width: 24px; height: 24px; border-radius: 8px; border: 2px solid var(--muted); flex-shrink: 0;
+                            display: grid; place-items: center; font-size: 14px; font-weight: 800; color: var(--on-lime); }
+    .expense-row.selected { border-color: var(--bar-on); }
+    .expense-row.selected .sel-box { background: var(--lime); border-color: var(--lime); }
+    .select-bar { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 560px; z-index: 750;
+                  display: flex; align-items: center; gap: 8px; background: var(--card-bg); border-top: 1px solid var(--border);
+                  border-radius: 26px 26px 0 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+                  box-shadow: 0 -8px 24px rgba(0,0,0,.22); }
+    .select-bar[hidden] { display: none; }
+    .select-bar .sel-count { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; }
+    .ui-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* sweeping bar while a receipt is being read */
+    .scan-progress { position: relative; height: 5px; border-radius: 5px; background: var(--border); overflow: hidden; margin: -4px 0 14px; }
+    .scan-progress[hidden] { display: none; }
+    .scan-progress i { position: absolute; top: 0; left: 0; height: 100%; width: 38%; border-radius: 5px;
+                       background: linear-gradient(90deg, transparent, var(--bar-on) 35%, var(--bar-on) 65%, transparent);
+                       animation: scanSweep 1.2s ease-in-out infinite; }
+    @keyframes scanSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(265%); } }
   `;
   document.head.appendChild(s);
 }
@@ -344,6 +376,8 @@ async function checkAuth() {
   }
   currentUser = data.username;
   displayName = data.displayName || '';
+  window.myUserId = data.id;
+  window.myAvatarDesc = data.avatar || null;
   updateGreeting();
   return true;
 }
@@ -638,6 +672,10 @@ function renderRecentList(monthExpenses) {
 
 // "All Expenses" page: category chips + expenses grouped by day
 let expenseFilter = 'All';
+let expenseQuery = '';              // text typed in the search box
+let selectMode = false;             // "Select" mode for deleting several at once
+const selectedIds = new Set();
+let visibleRows = [];               // the rows currently shown (for "Select all")
 
 function renderExpensesTab(monthExpenses) {
   const chipsEl = document.getElementById('filter-chips');
@@ -648,21 +686,29 @@ function renderExpensesTab(monthExpenses) {
     '<button class="chip' + (c === expenseFilter ? ' active' : '') + '" data-cat="' + c + '">' + c + '</button>').join('');
   chipsEl.scrollLeft = keepScroll;
 
-  const rows = monthExpenses
-    .filter(e => expenseFilter === 'All' || e.category === expenseFilter)
+  // Searching looks through ALL months; otherwise just the month on screen
+  const searching = expenseQuery.trim() !== '';
+  const rows = (searching ? allExpenses : monthExpenses)
+    .filter(e => (expenseFilter === 'All' || e.category === expenseFilter) && (!searching || matchesQuery(e, expenseQuery)))
     .sort(newestFirst);
   const total = rows.reduce((s, e) => s + e.amount, 0);
+  visibleRows = rows;
+  for (const id of [...selectedIds]) if (!allExpenses.some(e => e.id === id)) selectedIds.delete(id);   // already deleted
 
-  document.getElementById('exp-label').textContent =
-    expenseFilter === 'All' ? 'TOTAL SPENT' : 'TOTAL · ' + expenseFilter.toUpperCase();
+  document.getElementById('exp-label').textContent = searching
+    ? 'RESULTS' + (expenseFilter === 'All' ? '' : ' · ' + expenseFilter.toUpperCase())
+    : (expenseFilter === 'All' ? 'TOTAL SPENT' : 'TOTAL · ' + expenseFilter.toUpperCase());
   document.getElementById('exp-total').textContent = inr(total);
   document.getElementById('exp-count').textContent =
-    rows.length + (rows.length === 1 ? ' transaction' : ' transactions') + ' · ' + monthLabelOf(viewDate);
+    rows.length + (rows.length === 1 ? ' transaction' : ' transactions') + ' · ' + (searching ? 'all months' : monthLabelOf(viewDate));
+  updateSelectUi();
 
   const list = document.getElementById('all-expenses-list');
   list.innerHTML = '';
   if (!rows.length) {
-    list.innerHTML = '<div class="empty">No expenses here.</div>';
+    list.innerHTML = searching
+      ? '<div class="empty">Nothing matches “' + esc(expenseQuery.trim()) + '”.</div>'
+      : '<div class="empty">No expenses here.</div>';
     return;
   }
 
@@ -684,8 +730,113 @@ function renderExpensesTab(monthExpenses) {
       '<span>' + dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + '</span>' +
       '<span class="day-total">₹' + inr(g.total) + '</span>';
     list.appendChild(head);
-    g.items.forEach(e => list.appendChild(expenseRowEl(e, () => openEditExpense(e), false)));
+    g.items.forEach(e => {
+      const row = expenseRowEl(e, () => openEditExpense(e), false);
+      if (selectMode) {
+        const on = selectedIds.has(e.id);
+        row.classList.add('selecting');
+        row.classList.toggle('selected', on);
+        row.title = '';
+        row.insertAdjacentHTML('afterbegin', '<span class="sel-box">' + (on ? '✓' : '') + '</span>');
+        row.onclick = () => {                      // tapping selects instead of opening the editor
+          if (selectedIds.has(e.id)) selectedIds.delete(e.id); else selectedIds.add(e.id);
+          const now = selectedIds.has(e.id);
+          row.classList.toggle('selected', now);
+          row.querySelector('.sel-box').textContent = now ? '✓' : '';
+          updateSelectUi();
+        };
+      }
+      list.appendChild(row);
+    });
   });
+}
+
+// Every word typed must appear somewhere in the expense: note, category, amount, date, worth-it/regret
+function matchesQuery(e, q) {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const [y, m, d] = e.date.split('-').map(Number);
+  const pretty = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const hay = [e.category, e.description || '', e.date, pretty, e.amount.toFixed(2), String(e.amount),
+    e.verdict === 'worth' ? 'worth it' : e.verdict === 'regret' ? 'regret' : ''].join(' ').toLowerCase();
+  return words.every(w => hay.includes(w));
+}
+
+function rerenderExpensesTab() {      // redraw just this tab (keeps the search box focused)
+  const monthStr = monthStrOf(viewDate);
+  renderExpensesTab(allExpenses.filter(e => e.date.slice(0, 7) === monthStr));
+}
+
+// ---- Select mode: pick expenses, then delete them together ----
+function updateSelectUi() {
+  const bar = document.getElementById('select-bar');
+  if (!bar) return;                    // older index.html without the select bar
+  bar.hidden = !selectMode;
+  document.body.classList.toggle('selecting', selectMode);
+  const tog = document.getElementById('select-toggle');
+  if (tog) tog.textContent = selectMode ? 'Done' : 'Select';
+  const n = selectedIds.size;
+  document.getElementById('sel-count').textContent = n ? n + ' selected' : 'Tap expenses to select';
+  const del = document.getElementById('sel-del');
+  del.disabled = n === 0;
+  del.textContent = n ? 'Delete (' + n + ')' : 'Delete';
+  const allOn = visibleRows.length > 0 && visibleRows.every(e => selectedIds.has(e.id));
+  document.getElementById('sel-all').textContent = allOn ? 'Clear' : 'Select all';
+}
+function setSelectMode(on) {
+  selectMode = on;
+  selectedIds.clear();
+  rerenderExpensesTab();
+}
+function exitSelectMode() { if (selectMode) setSelectMode(false); }
+
+async function deleteSelected() {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  const everything = ids.length === allExpenses.length;
+  const ok = await confirmModal('Delete expenses',
+    ['Delete ' + ids.length + ' expense' + (ids.length === 1 ? '' : 's') + '?' +
+       (everything ? ' That is every expense you have recorded.' : ''),
+     'This can’t be undone.'], 'Delete');
+  if (!ok) return;
+  const r = await api('/api/expenses/bulk-delete', jsonOpts('POST', { ids }));
+  if (!r.ok) { showToast(r.data.error || 'Could not delete', 'danger'); return; }
+  selectMode = false;
+  selectedIds.clear();
+  await loadAllExpenses();
+  showToast(r.data.deleted + ' expense' + (r.data.deleted === 1 ? '' : 's') + ' deleted');
+}
+
+// Settings > Delete all expenses (needs the word DELETE typed)
+function openDeleteAll() {
+  const n = allExpenses.length;
+  const { body, close } = openModal('Delete all expenses');
+  if (n === 0) {
+    body.innerHTML = '<div style="font-size:14px">You have no expenses to delete.</div>' +
+      '<div class="ui-actions"><button class="ui-btn" id="da-close">Close</button></div>';
+    body.querySelector('#da-close').onclick = close;
+    return;
+  }
+  body.innerHTML =
+    '<div style="font-size:14px;margin-bottom:12px">This permanently deletes <b>all ' + n + '</b> of your expenses, in every month. ' +
+      'Your budgets, name, picture and split groups are not touched.</div>' +
+    '<label class="ui-field">Type <b>DELETE</b> to confirm<input id="da-input" autocomplete="off" autocapitalize="characters"></label>' +
+    '<div class="ui-error" id="da-err"></div>' +
+    '<div class="ui-actions"><button class="ui-btn" id="da-no">Cancel</button>' +
+      '<button class="ui-btn danger" id="da-yes" disabled>Delete everything</button></div>';
+  const input = body.querySelector('#da-input'), yes = body.querySelector('#da-yes');
+  input.addEventListener('input', () => { yes.disabled = input.value.trim() !== 'DELETE'; });
+  body.querySelector('#da-no').onclick = close;
+  yes.onclick = async () => {
+    yes.disabled = true;
+    const r = await api('/api/expenses/delete-all', jsonOpts('POST', { confirm: 'DELETE' }));
+    if (!r.ok) { body.querySelector('#da-err').textContent = r.data.error || 'Could not delete'; return; }
+    close();
+    selectMode = false;
+    selectedIds.clear();
+    await loadAllExpenses();
+    showToast(r.data.deleted + ' expense' + (r.data.deleted === 1 ? '' : 's') + ' deleted');
+  };
 }
 
 function renderBarChart(year, month, monthExpenses) {
@@ -1040,12 +1191,29 @@ if (isTouchDevice) {
   scanBtn.addEventListener('click', () => uploadInput.click());           // file picker
 }
 
+// Left-to-right sweeping bar shown while the AI reads a receipt
+function setScanLoading(on) {
+  let bar = document.getElementById('scan-progress');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'scan-progress';
+    bar.className = 'scan-progress';
+    bar.hidden = true;
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', 'Reading receipt');
+    bar.innerHTML = '<i></i>';
+    document.querySelector('.scan-row').insertAdjacentElement('afterend', bar);
+  }
+  bar.hidden = !on;
+}
+
 async function handleReceiptFile(input) {
   const file = input.files[0];
   if (!file) return;
 
   scanBtn.disabled = true;
   if (uploadBtn) uploadBtn.disabled = true;
+  setScanLoading(true);
   try {
     let result, source = 'AI';
     try {
@@ -1063,6 +1231,7 @@ async function handleReceiptFile(input) {
     console.error(err);
     scanStatus.textContent = 'Could not read the receipt. Please enter it manually.';
   } finally {
+    setScanLoading(false);
     scanBtn.disabled = false;
     if (uploadBtn) uploadBtn.disabled = false;
     input.value = '';
@@ -1220,10 +1389,11 @@ function ensureToolbar() {
   bar.innerHTML =
     '<button class="qa-btn" id="btn-cat-budgets"><span class="qa-ico">🎯</span><span>Budgets</span><span class="ui-badge" id="cb-badge" hidden></span></button>' +
     '<button class="qa-btn" id="btn-insights"><span class="qa-ico">💡</span><span>Insights</span></button>' +
-    '<button class="qa-btn" id="btn-splits"><span class="qa-ico">🤝</span><span>Splits</span></button>';
+    '<button class="qa-btn" id="btn-splits"><span class="qa-ico">🤝</span><span>Splits</span><span class="ui-badge" id="sp-badge" hidden></span></button>';
   bar.querySelector('#btn-cat-budgets').onclick = openCategoryBudgets;
   bar.querySelector('#btn-insights').onclick = openInsights;
   bar.querySelector('#btn-splits').onclick = () => openSplits();
+  if (window.refreshSplitsBadge) window.refreshSplitsBadge();   // number on the Splits button
   return bar;
 }
 
@@ -1485,6 +1655,7 @@ function updateGreeting() {
   }
   const st = document.getElementById('name-state');
   if (st) st.textContent = displayName || 'Not set';
+  if (window.refreshMyAvatarUI) window.refreshMyAvatarUI();   // picture + initial follow the name
 }
 
 function openNameEditor() {
@@ -1537,6 +1708,7 @@ function openThemePicker() {
 
 // ---- Bottom navigation: Home / Expenses / Analytics / Settings ----
 function showView(name) {
+  if (name !== 'expenses') exitSelectMode();   // leaving the tab ends Select mode
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   window.scrollTo(0, 0);
@@ -1566,6 +1738,36 @@ document.getElementById('filter-chips').addEventListener('click', ev => {
 });
 
 document.getElementById('month-label').addEventListener('click', openMonthPicker);
+
+// Search box + Select mode on the Expenses tab
+(function wireExpenseTools() {
+  const input = document.getElementById('exp-search');
+  const clear = document.getElementById('exp-search-clear');
+  if (input) {
+    let t = null;
+    input.addEventListener('input', () => {
+      clear.hidden = input.value === '';
+      clearTimeout(t);
+      t = setTimeout(() => { expenseQuery = input.value; rerenderExpensesTab(); }, 120);
+    });
+    clear.addEventListener('click', () => {
+      input.value = ''; clear.hidden = true; expenseQuery = ''; rerenderExpensesTab(); input.focus();
+    });
+  }
+  const tog = document.getElementById('select-toggle');
+  if (tog) tog.addEventListener('click', () => setSelectMode(!selectMode));
+  const cancel = document.getElementById('sel-cancel');
+  if (cancel) cancel.addEventListener('click', () => setSelectMode(false));
+  const all = document.getElementById('sel-all');
+  if (all) all.addEventListener('click', () => {
+    const allOn = visibleRows.length > 0 && visibleRows.every(e => selectedIds.has(e.id));
+    selectedIds.clear();
+    if (!allOn) visibleRows.forEach(e => selectedIds.add(e.id));
+    rerenderExpensesTab();
+  });
+  const del = document.getElementById('sel-del');
+  if (del) del.addEventListener('click', deleteSelected);
+})();
 
 checkAuth().then(async ok => {
   if (ok) {

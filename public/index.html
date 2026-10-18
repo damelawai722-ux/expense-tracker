@@ -16,9 +16,12 @@
 
   <!-- Top bar -->
   <header class="app-header">
-    <div class="hello">
-      <div class="hello-small" id="hello-small">Welcome back,</div>
-      <div class="hello-name" id="hello-name">…</div>
+    <div class="hello-row">
+      <button class="hdr-av" id="hdr-avatar" onclick="openProfilePicker()" aria-label="Profile picture"></button>
+      <div class="hello">
+        <div class="hello-small" id="hello-small">Welcome back,</div>
+        <div class="hello-name" id="hello-name">…</div>
+      </div>
     </div>
     <button id="theme-toggle" class="icon-btn" onclick="toggleTheme()" aria-label="Switch light or dark theme">🌙</button>
   </header>
@@ -70,6 +73,15 @@
         <div class="hero-sub" id="exp-count">0 transactions</div>
       </div>
 
+      <div class="search-row">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="search" id="exp-search" placeholder="Search note, category, amount or date" autocomplete="off" enterkeyhint="search">
+          <button class="search-clear" id="exp-search-clear" hidden aria-label="Clear search">✕</button>
+        </div>
+        <button class="link-btn" id="select-toggle">Select</button>
+      </div>
+
       <div class="chips" id="filter-chips"></div>
       <div id="all-expenses-list"></div>
 
@@ -107,6 +119,11 @@
       <div class="section-head first"><h2>Settings</h2></div>
 
       <div class="settings-list">
+        <button class="set-row" onclick="openProfilePicker()">
+          <span class="set-ico" id="avatar-ico">🖼️</span>
+          <span class="set-text"><b>Profile picture</b><small id="avatar-state">Choose an avatar or upload a photo</small></span>
+          <span class="chev">›</span>
+        </button>
         <button class="set-row" onclick="openNameEditor()">
           <span class="set-ico">🙂</span>
           <span class="set-text"><b>Your name</b><small id="name-state">Not set</small></span>
@@ -147,6 +164,11 @@
           <span class="set-text"><b>Export data</b><small>CSV or PDF</small></span>
           <span class="chev">›</span>
         </button>
+        <button class="set-row danger" onclick="openDeleteAll()">
+          <span class="set-ico">🗑️</span>
+          <span class="set-text"><b>Delete all expenses</b><small>Removes every expense you have recorded</small></span>
+          <span class="chev">›</span>
+        </button>
         <button class="set-row danger" onclick="logout()">
           <span class="set-ico">🚪</span>
           <span class="set-text"><b>Log out</b></span>
@@ -158,6 +180,14 @@
     </section>
 
   </main>
+</div>
+
+<!-- Select-mode bar (replaces the bottom navigation while choosing expenses to delete) -->
+<div class="select-bar" id="select-bar" hidden>
+  <span class="sel-count" id="sel-count">Tap expenses to select</span>
+  <button class="ui-btn" id="sel-all">Select all</button>
+  <button class="ui-btn danger" id="sel-del" disabled>Delete</button>
+  <button class="ui-btn" id="sel-cancel">Cancel</button>
 </div>
 
 <!-- Bottom navigation -->
@@ -218,6 +248,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
+<script src="profile.js"></script>
 <script src="splits.js"></script>
 </body>
 </html>

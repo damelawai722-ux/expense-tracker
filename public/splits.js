@@ -60,7 +60,8 @@
       .sp-flow.in { border-left:4px solid #1f9d63; }
       .sp-flow-row { display:grid; grid-template-columns:1fr minmax(92px, 1.1fr) 1fr; align-items:center; gap:6px; }
       .sp-person { display:flex; flex-direction:column; align-items:center; text-align:center; gap:4px; min-width:0; }
-      .sp-person .sp-av { width:42px; height:42px; font-size:18px; }
+      .sp-person .sp-av, .sp-person .av { width:46px; height:46px; font-size:22px; }
+      .sp-newpill { display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px; background:#d35400; color:#fff; font-size:10px; font-weight:800; letter-spacing:.6px; vertical-align:middle; }
       .sp-person span { font-weight:700; font-size:14px; max-width:100%; overflow-wrap:anywhere; line-height:1.2; }
       .sp-person small { font-size:11px; color:var(--muted); }
       .sp-arrow { display:flex; flex-direction:column; align-items:center; gap:6px; }
@@ -110,6 +111,7 @@
 
   const AV_COLORS = ['#2E9E6B', '#3B82F6', '#E0822B', '#8B5CF6', '#E0507A', '#14A3A3', '#B8860B', '#E05252'];
   function avatar(m, small) {
+    if (window.avatarHtml) return window.avatarHtml(m, small ? 'sm' : '');   // photo, avatar, or coloured initial
     const initial = String(m.name || '?').trim().charAt(0).toUpperCase() || '?';
     return '<span class="sp-av' + (small ? ' sm' : '') + '" style="background:' + AV_COLORS[m.id % AV_COLORS.length] + '">' + esc(initial) + '</span>';
   }
@@ -134,11 +136,51 @@
   }
   window.openSplits = openSplits;
 
-  // Live updates: the server pings us when a group changes; we quietly re-fetch.
+  // ------------------------- live connection (shared) -------------------------
+  // ONE connection serves the open Splits screen AND the number on the Splits button.
+  let sharedES = null, esOpened = false, lastMsgAt = 0;
+  const liveListeners = new Set();
+  const streamLive = () => !!(sharedES && sharedES.readyState === 1 && lastMsgAt && (Date.now() - lastMsgAt) < 40000);
+
+  function ensureStream() {
+    if (sharedES || typeof EventSource === 'undefined') return;   // very old browser: the 4-second check still works
+    sharedES = new EventSource('/api/splits/stream');
+    sharedES.onopen = () => { const re = esOpened; esOpened = true; liveListeners.forEach(f => f({ t: 'open', re })); };
+    sharedES.onmessage = ev => {
+      lastMsgAt = Date.now();
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      liveListeners.forEach(f => f(m));
+    };
+    // the badge reacts to every change and after a reconnect
+    liveListeners.add(m => { if (m.t === 'changed' || (m.t === 'open' && m.re)) refreshBadgeSoon(); });
+  }
+
+  // The little number on the Splits button: groups where I owe money + groups with news I haven't seen
+  let badgeTimer = null;
+  async function refreshBadge() {
+    const el = document.getElementById('sp-badge');
+    if (!el) return;                       // Home screen not drawn yet
+    ensureStream();                        // we know we're logged in once the button exists
+    const r = await api('/api/splits/summary');
+    if (!r.ok) return;
+    const n = r.data.attention || 0;
+    el.hidden = n === 0;
+    el.textContent = n;
+    el.className = 'ui-badge' + (r.data.owing > 0 ? ' danger' : '');   // red when you owe, orange for news only
+    const bits = [];
+    if (r.data.owing > 0) bits.push('You owe money in ' + r.data.owing + (r.data.owing === 1 ? ' group' : ' groups'));
+    if (r.data.unseen > 0) bits.push(r.data.unseen + (r.data.unseen === 1 ? ' group has' : ' groups have') + ' new updates');
+    el.parentElement.title = bits.join(' · ');
+  }
+  function refreshBadgeSoon() { clearTimeout(badgeTimer); badgeTimer = setTimeout(refreshBadge, 300); }
+  window.refreshSplitsBadge = refreshBadgeSoon;
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshBadgeSoon(); });
+  setInterval(() => { if (document.visibilityState === 'visible') refreshBadgeSoon(); }, 60000);
+
+  // Live updates for the open Splits window: the server pings us, we quietly re-fetch.
   function startLive(ctx) {
-    if (typeof EventSource === 'undefined') return;   // very old browser: Refresh button still works
-    const es = new EventSource('/api/splits/stream');
-    let timer = null, opened = false;
+    ensureStream();
+    let timer = null;
     const refresh = (groupId) => {
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -147,21 +189,23 @@
         // while typing in a form we never redraw; the next screen fetches fresh data anyway
       }, 250);
     };
-    // Safety net: trust the live connection only while messages really arrive (the server
-    // pings every 25s). Otherwise quietly re-check every 4 seconds while the screen is visible.
-    let lastMsg = 0;
-    const poll = setInterval(() => {
-      if (!ctx.body.isConnected) { clearInterval(poll); es.close(); return; }
-      const live = es.readyState === 1 && lastMsg && (Date.now() - lastMsg) < 40000;
-      if (!live && document.visibilityState === 'visible') refresh(null);
-    }, 4000);
-    es.onopen = () => { if (opened) refresh(null); opened = true; };   // reconnected: catch up on anything missed
-    es.onmessage = ev => {
-      if (!ctx.body.isConnected) { es.close(); return; }               // Splits was closed
-      lastMsg = Date.now();
-      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    const onMsg = m => {
+      if (!ctx.body.isConnected) { cleanup(); return; }               // Splits was closed
       if (m.t === 'changed') refresh(m.g);
+      else if (m.t === 'open' && m.re) refresh(null);                 // reconnected: catch up on anything missed
     };
+    // Safety net: trust the live connection only while messages really arrive; otherwise re-check every 4s
+    const poll = setInterval(() => {
+      if (!ctx.body.isConnected) { cleanup(); return; }
+      if (!streamLive() && document.visibilityState === 'visible') refresh(null);
+    }, 4000);
+    function cleanup() {
+      liveListeners.delete(onMsg);
+      clearInterval(poll);
+      clearTimeout(timer);
+      refreshBadgeSoon();                                              // I may have read updates: recount
+    }
+    liveListeners.add(onMsg);
   }
 
   // ------------------------- my groups -------------------------
@@ -180,7 +224,7 @@
       '</div>' +
       (groups.length
         ? groups.map(g =>
-            '<div class="sp-row" data-g="' + g.id + '"><div><div class="sp-name">' + esc(g.name) + '</div>' +
+            '<div class="sp-row" data-g="' + g.id + '"><div><div class="sp-name">' + esc(g.name) + (g.unseen ? '<span class="sp-newpill">NEW</span>' : '') + '</div>' +
             '<div class="sp-sub">' + g.members + (g.members === 1 ? ' member' : ' members') + '</div></div>' +
             statusHtml(g.myBalance) + '</div>').join('')
         : '<div class="empty">No groups yet.<br>Create one for a trip or a flat, then share the code with friends.</div>') +
@@ -191,6 +235,7 @@
     body.querySelector('#sp-join').onclick = () => showJoin(ctx);
     body.querySelectorAll('[data-g]').forEach(el => { el.onclick = () => showGroup(ctx, Number(el.dataset.g)); });
     setupPush(body.querySelector('#sp-pushbox'));
+    refreshBadgeSoon();
   }
 
   // ------------------------- notifications (Web Push) -------------------------
@@ -406,6 +451,7 @@
 
     body.querySelector('#sp-b').onclick = () => showList(ctx);
     body.querySelector('#sp-add').onclick = () => showAddExpense(ctx, d);
+    refreshBadgeSoon();
     body.querySelector('#sp-share').onclick = async () => {
       const text = 'Join my group "' + d.group.name + '" on Expense Tracker. Invite code: ' + d.group.code;
       if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { /* cancelled */ } }

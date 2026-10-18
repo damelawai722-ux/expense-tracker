@@ -17,6 +17,17 @@ if (pushOn) {
   console.warn('[splits] push notifications are off (need the web-push package and VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)');
 }
 
+// Ready-made avatars (the emoji + colour for each lives in the browser, profile.js)
+const AVATAR_PRESETS = ['fox', 'panda', 'cat', 'dog', 'lion', 'owl', 'frog', 'koala',
+  'unicorn', 'tiger', 'penguin', 'octopus', 'rocket', 'robot', 'alien', 'ghost'];
+
+// What the browser needs to draw someone's picture: null | 'preset:fox' | 'photo:<version>'
+function avatarDescriptor(avatar, updatedAt) {
+  if (avatar === 'photo') return updatedAt ? 'photo:' + new Date(updatedAt).getTime() : null;
+  if (typeof avatar === 'string' && avatar.indexOf('preset:') === 0 && AVATAR_PRESETS.includes(avatar.slice(7))) return avatar;
+  return null;
+}
+
 const MAX_MEMBERS = 20;
 const MAX_GROUPS_PER_USER = 30;
 const MAX_RUPEES = 10000000;                       // same limit as normal expenses
@@ -122,6 +133,18 @@ async function initSplitsDb(pool) {
       created_at TIMESTAMP DEFAULT NOW()
     )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_split_settlements_group ON split_settlements(group_id)');
+  // Profile pictures: users.avatar = 'preset:<key>' | 'photo'; uploaded photo bytes live in user_avatars
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_avatars (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      data BYTEA NOT NULL,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )`);
+  // "New updates" badge: when did I last open each group, and who changed it last?
+  await pool.query('ALTER TABLE split_members ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP DEFAULT NOW()');
+  await pool.query('ALTER TABLE split_groups ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP');
+  await pool.query('ALTER TABLE split_groups ADD COLUMN IF NOT EXISTS last_activity_by INTEGER');
   // One row per phone/browser that agreed to notifications
   await pool.query(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -245,14 +268,90 @@ function mountSplits(app, pool, requireAuth, helpers) {
   }
 
   // Called after every change: live-update open screens + notify the others
-  async function changed(groupId, actorId, what) {
+  function announce(groupId) {
     deliverLocal(groupId);                                   // phones on this server: instant, no database channel needed
     if (listenerUp) {                                        // phones on any OTHER server copy
       pool.query("SELECT pg_notify('split_changes', $1)", [JSON.stringify({ g: groupId, i: INSTANCE_ID })])
         .catch(e => console.error('[splits] notify failed:', e.message));
     }
+  }
+  async function changed(groupId, actorId, what) {
+    try {   // remember who changed it last, for the "new updates" badge
+      await pool.query('UPDATE split_groups SET last_activity_at = NOW(), last_activity_by = $2 WHERE id = $1', [groupId, actorId]);
+    } catch (e) { console.error('[splits] activity update failed:', e.message); }
+    announce(groupId);
     sendPush(groupId, actorId, what);
   }
+
+  // ---- Profile picture ----
+  async function announceUserGroups(userId) {
+    try {
+      const { rows } = await pool.query('SELECT group_id FROM split_members WHERE user_id = $1', [userId]);
+      rows.forEach(r => announce(r.group_id));   // friends' open screens redraw with the new picture
+    } catch (e) { /* not important */ }
+  }
+
+  // Body: { preset: 'fox' }  or  { image: 'data:image/jpeg;base64,...' }  or  { remove: true }
+  app.put('/api/profile/avatar', requireAuth, async (req, res) => {
+    const me = req.session.userId;
+    const b = req.body || {};
+    try {
+      if (b.remove === true) {
+        await pool.query('DELETE FROM user_avatars WHERE user_id = $1', [me]);
+        await pool.query('UPDATE users SET avatar = NULL WHERE id = $1', [me]);
+      } else if (typeof b.preset === 'string') {
+        if (!AVATAR_PRESETS.includes(b.preset)) return res.status(400).json({ error: 'Unknown avatar' });
+        await pool.query('DELETE FROM user_avatars WHERE user_id = $1', [me]);
+        await pool.query('UPDATE users SET avatar = $2 WHERE id = $1', [me, 'preset:' + b.preset]);
+      } else if (typeof b.image === 'string') {
+        if (b.image.length > 260000) return res.status(400).json({ error: 'That picture is too large' });
+        const m = /^data:image\/jpeg;base64,([A-Za-z0-9+\/]+={0,2})$/.exec(b.image);
+        if (!m) return res.status(400).json({ error: 'Invalid picture' });
+        const buf = Buffer.from(m[1], 'base64');
+        if (buf.length < 100 || buf.length > 150000) return res.status(400).json({ error: 'That picture is too large' });
+        if (!(buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF)) return res.status(400).json({ error: 'Invalid picture' });
+        await pool.query(
+          `INSERT INTO user_avatars (user_id, data, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`, [me, buf]);
+        await pool.query("UPDATE users SET avatar = 'photo' WHERE id = $1", [me]);
+      } else {
+        return res.status(400).json({ error: 'Nothing to save' });
+      }
+      const row = (await pool.query(
+        `SELECT u.avatar, ua.updated_at FROM users u LEFT JOIN user_avatars ua ON ua.user_id = u.id WHERE u.id = $1`, [me])).rows[0];
+      res.json({ avatar: avatarDescriptor(row && row.avatar, row && row.updated_at) });
+      announceUserGroups(me);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // A photo can be seen by its owner and by people who share a group with them. Nobody else.
+  app.get('/api/avatars/:id', requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) return res.status(400).end();
+    const me = req.session.userId;
+    try {
+      if (id !== me) {
+        const ok = await pool.query(
+          `SELECT 1 FROM split_members a JOIN split_members b ON a.group_id = b.group_id
+           WHERE a.user_id = $1 AND b.user_id = $2 LIMIT 1`, [me, id]);
+        if (!ok.rowCount) return res.status(404).end();
+      }
+      const r = await pool.query('SELECT data FROM user_avatars WHERE user_id = $1', [id]);
+      if (!r.rowCount) return res.status(404).end();
+      res.set({
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': 'private, max-age=604800',   // the ?v= in the address changes when the photo does
+        'X-Content-Type-Options': 'nosniff'
+      });
+      res.send(r.rows[0].data);
+    } catch (e) {
+      console.error(e);
+      res.status(500).end();
+    }
+  });
 
   // ---- Push subscription endpoints ----
   app.get('/api/splits/push/key', requireAuth, (req, res) => {
@@ -337,15 +436,16 @@ function mountSplits(app, pool, requireAuth, helpers) {
     if (!g) return null;
 
     const mrows = (await db.query(
-      `SELECT u.id, NULLIF(TRIM(u.display_name), '') AS name
+      `SELECT u.id, NULLIF(TRIM(u.display_name), '') AS name, u.avatar, ua.updated_at AS avatar_at
        FROM split_members m JOIN users u ON u.id = m.user_id
+       LEFT JOIN user_avatars ua ON ua.user_id = u.id
        WHERE m.group_id = $1 ORDER BY m.joined_at, u.id`, [groupId])).rows;
     // Never show login usernames. Unnamed members get a neutral label; duplicates get (2), (3)...
     const seen = {};
     const members = mrows.map(r => {
       const base = r.name || 'Unnamed member';
       seen[base] = (seen[base] || 0) + 1;
-      return { id: r.id, name: seen[base] > 1 ? base + ' (' + seen[base] + ')' : base };
+      return { id: r.id, name: seen[base] > 1 ? base + ' (' + seen[base] + ')' : base, avatar: avatarDescriptor(r.avatar, r.avatar_at) };
     });
 
     const erows = (await db.query(
@@ -387,19 +487,47 @@ function mountSplits(app, pool, requireAuth, helpers) {
     };
   }
 
+  // My balance in every group, my "unseen update" flag, all in ONE query
+  const NET_SQL = `(
+    COALESCE((SELECT SUM(e.amount_paise) FROM split_expenses e WHERE e.group_id = gr.id AND e.paid_by = $1), 0)
+    - COALESCE((SELECT SUM(s.share_paise) FROM split_expense_shares s JOIN split_expenses e ON e.id = s.expense_id
+                WHERE e.group_id = gr.id AND s.user_id = $1), 0)
+    + COALESCE((SELECT SUM(t.amount_paise) FROM split_settlements t WHERE t.group_id = gr.id AND t.from_user = $1), 0)
+    - COALESCE((SELECT SUM(t.amount_paise) FROM split_settlements t WHERE t.group_id = gr.id AND t.to_user = $1), 0)
+  )`;
+  async function myGroupsSummary(me) {
+    const { rows } = await pool.query(
+      `SELECT gr.id, gr.name,
+         (SELECT COUNT(*) FROM split_members x WHERE x.group_id = gr.id)::int AS members,
+         ${NET_SQL} AS net,
+         (gr.last_activity_by IS NOT NULL AND gr.last_activity_by <> $1
+            AND gr.last_activity_at > m.last_seen_at) AS unseen
+       FROM split_members m JOIN split_groups gr ON gr.id = m.group_id
+       WHERE m.user_id = $1 ORDER BY gr.id DESC`, [me]);
+    return rows.map(r => ({ id: r.id, name: r.name, members: r.members, myBalance: Number(r.net), unseen: !!r.unseen }));
+  }
+
   // ---- My groups, with my own balance in each ----
   app.get('/api/splits/groups', requireAuth, async (req, res) => {
     try {
-      const me = req.session.userId;
-      const { rows } = await pool.query(
-        `SELECT g.id FROM split_groups g JOIN split_members m ON m.group_id = g.id
-         WHERE m.user_id = $1 ORDER BY g.id DESC`, [me]);
-      const out = [];
-      for (const r of rows) {
-        const d = await loadGroup(pool, r.id, me);
-        if (d) out.push({ id: d.group.id, name: d.group.name, members: d.members.length, myBalance: d.balances[me] || 0 });
-      }
-      res.json(out);
+      res.json(await myGroupsSummary(req.session.userId));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // Little number on the Splits button: groups where I owe money or that have updates I haven't seen
+  app.get('/api/splits/summary', requireAuth, async (req, res) => {
+    try {
+      const gs = await myGroupsSummary(req.session.userId);
+      const owing = gs.filter(g => g.myBalance < 0);
+      res.json({
+        attention: gs.filter(g => g.myBalance < 0 || g.unseen).length,
+        owing: owing.length,
+        unseen: gs.filter(g => g.unseen).length,
+        owedTotal: owing.reduce((t, g) => t - g.myBalance, 0)
+      });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Server error' });
@@ -481,7 +609,9 @@ function mountSplits(app, pool, requireAuth, helpers) {
     try {
       const me = req.session.userId;
       if (!(await isMember(pool, id, me))) return res.status(404).json({ error: 'Group not found' });
-      res.json(await loadGroup(pool, id, me));
+      const data = await loadGroup(pool, id, me);
+      await pool.query('UPDATE split_members SET last_seen_at = NOW() WHERE group_id = $1 AND user_id = $2', [id, me]);
+      res.json(data);
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: 'Server error' });
@@ -656,4 +786,4 @@ function mountSplits(app, pool, requireAuth, helpers) {
   });
 }
 
-module.exports = { mountSplits, initSplitsDb, splitEqual, computeNets, simplify };
+module.exports = { mountSplits, initSplitsDb, splitEqual, computeNets, simplify, avatarDescriptor };

@@ -4,7 +4,7 @@ const pgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const { Pool } = require('pg');
-const { mountSplits, initSplitsDb } = require('./splitsRoutes');
+const { mountSplits, initSplitsDb, avatarDescriptor } = require('./splitsRoutes');
 
 // ---- Database connection (external Postgres, survives restarts) ----
 const pool = new Pool({
@@ -237,11 +237,15 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', async (req, res) => {
   if (!req.session.userId) return res.json({ loggedIn: false });
   try {
-    const { rows } = await pool.query('SELECT display_name FROM users WHERE id = $1', [req.session.userId]);
+    const { rows } = await pool.query(
+      `SELECT u.display_name, u.avatar, ua.updated_at AS avatar_at
+       FROM users u LEFT JOIN user_avatars ua ON ua.user_id = u.id WHERE u.id = $1`, [req.session.userId]);
     res.json({
       loggedIn: true,
+      id: req.session.userId,
       username: req.session.username,
-      displayName: (rows[0] && rows[0].display_name) || ''
+      displayName: (rows[0] && rows[0].display_name) || '',
+      avatar: rows[0] ? avatarDescriptor(rows[0].avatar, rows[0].avatar_at) : null
     });
   } catch (e) {
     console.error(e);
@@ -321,6 +325,35 @@ app.delete('/api/expenses/:id', requireAuth, async (req, res) => {
   try {
     await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [id, req.session.userId]);
     res.json({ success: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete several expenses at once (only ever the logged-in user's own)
+app.post('/api/expenses/bulk-delete', requireAuth, async (req, res) => {
+  const raw = req.body && req.body.ids;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 20000) {
+    return res.status(400).json({ error: 'Pick at least one expense' });
+  }
+  const ids = [...new Set(raw.map(n => parseInt(n, 10)))].filter(n => Number.isInteger(n) && n > 0 && n < 2147483647);
+  if (ids.length === 0) return res.status(400).json({ error: 'Pick at least one expense' });
+  try {
+    const r = await pool.query('DELETE FROM expenses WHERE user_id = $1 AND id = ANY($2::int[])', [req.session.userId, ids]);
+    res.json({ deleted: r.rowCount });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete EVERY expense of the logged-in user. The caller must send confirm: "DELETE".
+app.post('/api/expenses/delete-all', requireAuth, async (req, res) => {
+  if (!req.body || req.body.confirm !== 'DELETE') return res.status(400).json({ error: 'Confirmation missing' });
+  try {
+    const r = await pool.query('DELETE FROM expenses WHERE user_id = $1', [req.session.userId]);
+    res.json({ deleted: r.rowCount });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
