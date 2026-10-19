@@ -154,6 +154,7 @@
     const ctx = openModal('Splits', { wide: true });
     showList(ctx);
     startLive(ctx);
+    if (window.maybeShowSplitsGuide) window.maybeShowSplitsGuide();
   }
   window.openSplits = openSplits;
 
@@ -242,6 +243,7 @@
       '<div class="ui-actions" style="justify-content:flex-start;margin:0 0 14px">' +
         '<button class="ui-btn primary" id="sp-new">+ New group</button>' +
         '<button class="ui-btn" id="sp-join">Join with code</button>' +
+        '<button class="ui-btn" id="sp-help" aria-label="How splits work">?</button>' +
       '</div>' +
       (groups.length
         ? groups.map(g =>
@@ -254,6 +256,7 @@
 
     body.querySelector('#sp-new').onclick = () => showCreate(ctx);
     body.querySelector('#sp-join').onclick = () => showJoin(ctx);
+    body.querySelector('#sp-help').onclick = () => window.openSplitsGuide && window.openSplitsGuide();
     body.querySelectorAll('[data-g]').forEach(el => { el.onclick = () => showGroup(ctx, Number(el.dataset.g)); });
     setupPush(body.querySelector('#sp-pushbox'));
     refreshBadgeSoon();

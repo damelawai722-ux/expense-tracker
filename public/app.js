@@ -1776,5 +1776,6 @@ checkAuth().then(async ok => {
   if (ok) {
     await ensureBudgets(monthStrOf(viewDate));   // so the first draw already has them
     await loadAllExpenses();
+    if (window.maybeShowWelcomeGuide) window.maybeShowWelcomeGuide();
   }
 });
