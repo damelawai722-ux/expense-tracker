@@ -134,6 +134,16 @@
           <span class="set-text"><b>Theme color</b><small id="color-state">Forest</small></span>
           <span class="chev">›</span>
         </button>
+        <button class="set-row" onclick="openEmailSetup()">
+          <span class="set-ico">✉️</span>
+          <span class="set-text"><b>Email &amp; password recovery</b><small id="email-state">Add a verified email to recover your account</small></span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-row" onclick="openChangePassword()">
+          <span class="set-ico">🔑</span>
+          <span class="set-text"><b>Change password</b><small>Use your current password</small></span>
+          <span class="chev">›</span>
+        </button>
         <button class="set-row" onclick="toggleTheme()">
           <span class="set-ico">🌙</span>
           <span class="set-text"><b>Dark mode</b><small id="theme-state">Off</small></span>
@@ -249,6 +259,7 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="app.js"></script>
 <script src="profile.js"></script>
+<script src="account.js"></script>
 <script src="splits.js"></script>
 </body>
 </html>

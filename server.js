@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const { Pool } = require('pg');
 const { mountSplits, initSplitsDb, avatarDescriptor } = require('./splitsRoutes');
+const { mountAuth, initAuthDb } = require('./authRoutes');
 
 // ---- Database connection (external Postgres, survives restarts) ----
 const pool = new Pool({
@@ -85,6 +86,9 @@ async function initDb() {
     SELECT user_id, '0000-00', category, monthly_limit FROM category_budgets
     ON CONFLICT DO NOTHING
   `);
+
+  // Email verification / password reset
+  await initAuthDb(pool);
 
   // Splits (shared groups)
   await initSplitsDb(pool);
@@ -238,14 +242,16 @@ app.get('/api/me', async (req, res) => {
   if (!req.session.userId) return res.json({ loggedIn: false });
   try {
     const { rows } = await pool.query(
-      `SELECT u.display_name, u.avatar, ua.updated_at AS avatar_at
+      `SELECT u.display_name, u.avatar, u.email, u.email_verified, ua.updated_at AS avatar_at
        FROM users u LEFT JOIN user_avatars ua ON ua.user_id = u.id WHERE u.id = $1`, [req.session.userId]);
     res.json({
       loggedIn: true,
       id: req.session.userId,
       username: req.session.username,
       displayName: (rows[0] && rows[0].display_name) || '',
-      avatar: rows[0] ? avatarDescriptor(rows[0].avatar, rows[0].avatar_at) : null
+      avatar: rows[0] ? avatarDescriptor(rows[0].avatar, rows[0].avatar_at) : null,
+      email: (rows[0] && rows[0].email) || '',
+      emailVerified: !!(rows[0] && rows[0].email_verified)
     });
   } catch (e) {
     console.error(e);
@@ -649,6 +655,7 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
 
 // ---- Splits (shared groups) ----
 mountSplits(app, pool, requireAuth, { ALLOWED_CATEGORIES, isValidDate });
+mountAuth(app, pool, requireAuth, bcrypt);   // verify email, forgot password, change password
 
 // ---- Friendly JSON errors (too-large body, bad JSON, anything unexpected) ----
 app.use((err, req, res, next) => {

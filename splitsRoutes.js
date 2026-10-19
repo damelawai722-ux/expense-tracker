@@ -189,12 +189,12 @@ function mountSplits(app, pool, requireAuth, helpers) {
   const INSTANCE_ID = crypto.randomBytes(6).toString('hex');   // tells this server's own messages apart
 
   // Send the "something changed" ping to the phones connected to THIS server process.
-  async function deliverLocal(groupId) {
+  async function deliverLocal(groupId, userIds) {
     try {
-      const { rows } = await pool.query('SELECT user_id FROM split_members WHERE group_id = $1', [groupId]);
+      const ids = userIds || (await pool.query('SELECT user_id FROM split_members WHERE group_id = $1', [groupId])).rows.map(r => r.user_id);
       const msg = 'data: ' + JSON.stringify({ t: 'changed', g: groupId }) + '\n\n';
-      rows.forEach(r => {
-        const set = streams.get(r.user_id);
+      ids.forEach(uid => {
+        const set = streams.get(uid);
         if (set) set.forEach(res => { try { res.write(msg); } catch (e) { /* closed */ } });
       });
     } catch (e) { console.error('deliverLocal failed', e); }
@@ -222,7 +222,7 @@ function mountSplits(app, pool, requireAuth, helpers) {
         if (!p) return;
         if (p.test && p.i === INSTANCE_ID) { listenTestOk = true; return; }
         if (p.i === INSTANCE_ID) return;        // this server already delivered it directly
-        if (p.g) deliverLocal(p.g);             // another server copy announced a change
+        if (p.g) deliverLocal(p.g, p.u);        // another server copy announced a change
       } catch (e) { /* ignore */ }
     });
     try {
@@ -242,19 +242,13 @@ function mountSplits(app, pool, requireAuth, helpers) {
   startListener();
 
   // Browser notifications for people who don't have the app open
-  async function sendPush(groupId, actorId, what) {
-    if (!pushOn) return;
+  async function pushToUsers(userIds, payloadObj) {
+    if (!pushOn || !userIds.length) return;
     try {
-      const info = (await pool.query(
-        `SELECT g.name AS gname, NULLIF(TRIM(u.display_name), '') AS uname
-         FROM split_groups g, users u WHERE g.id = $1 AND u.id = $2`, [groupId, actorId])).rows[0];
-      if (!info) return;
       const subs = (await pool.query(
-        `SELECT p.endpoint, p.p256dh, p.auth
-         FROM push_subscriptions p JOIN split_members m ON m.user_id = p.user_id
-         WHERE m.group_id = $1 AND p.user_id <> $2`, [groupId, actorId])).rows;   // never notify the person who did it
+        'SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::int[])', [userIds])).rows;
       if (!subs.length) return;
-      const payload = JSON.stringify({ title: info.gname, body: (info.uname || 'Someone') + ' ' + what, tag: 'split-' + groupId });
+      const payload = JSON.stringify(payloadObj);
       await Promise.all(subs.map(async s => {
         try {
           await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 3600 });
@@ -264,14 +258,27 @@ function mountSplits(app, pool, requireAuth, helpers) {
           } else console.error('[splits] push failed:', e.statusCode || e.message);
         }
       }));
+    } catch (e) { console.error('[splits] push:', e.message); }
+  }
+
+  async function sendPush(groupId, actorId, what) {
+    if (!pushOn) return;
+    try {
+      const info = (await pool.query(
+        `SELECT g.name AS gname, NULLIF(TRIM(u.display_name), '') AS uname
+         FROM split_groups g, users u WHERE g.id = $1 AND u.id = $2`, [groupId, actorId])).rows[0];
+      if (!info) return;
+      const others = (await pool.query(
+        'SELECT user_id FROM split_members WHERE group_id = $1 AND user_id <> $2', [groupId, actorId])).rows.map(r => r.user_id);   // never notify the person who did it
+      await pushToUsers(others, { title: info.gname, body: (info.uname || 'Someone') + ' ' + what, tag: 'split-' + groupId });
     } catch (e) { console.error('[splits] sendPush:', e.message); }
   }
 
   // Called after every change: live-update open screens + notify the others
-  function announce(groupId) {
-    deliverLocal(groupId);                                   // phones on this server: instant, no database channel needed
+  function announce(groupId, userIds) {
+    deliverLocal(groupId, userIds);                          // phones on this server: instant, no database channel needed
     if (listenerUp) {                                        // phones on any OTHER server copy
-      pool.query("SELECT pg_notify('split_changes', $1)", [JSON.stringify({ g: groupId, i: INSTANCE_ID })])
+      pool.query("SELECT pg_notify('split_changes', $1)", [JSON.stringify({ g: groupId, i: INSTANCE_ID, u: userIds })])
         .catch(e => console.error('[splits] notify failed:', e.message));
     }
   }
@@ -478,10 +485,32 @@ function mountSplits(app, pool, requireAuth, helpers) {
       created_by: s.created_by, created_at: s.created_at
     }));
 
+    // People who left still appear in old entries: fetch their names so history stays readable
+    const known = new Set(members.map(m => m.id));
+    const ref = new Set();
+    expenses.forEach(e => { ref.add(e.paid_by); e.shares.forEach(s => ref.add(s.user_id)); });
+    settlements.forEach(s => { ref.add(s.from_user); ref.add(s.to_user); });
+    const formerIds = [...ref].filter(id => !known.has(id));
+    let former = [];
+    if (formerIds.length) {
+      const fr = (await db.query(
+        `SELECT u.id, NULLIF(TRIM(u.display_name), '') AS name, u.avatar, ua.updated_at AS avatar_at
+         FROM users u LEFT JOIN user_avatars ua ON ua.user_id = u.id WHERE u.id = ANY($1::int[])`, [formerIds])).rows;
+      former = fr.map(r => ({ id: r.id, name: (r.name || 'Unnamed member') + ' (left)', avatar: avatarDescriptor(r.avatar, r.avatar_at) }));
+    }
+
     const net = computeNets(members.map(m => m.id), expenses, settlements);
+    const allSettled = Object.values(net).every(v => v === 0);
+    const creatorIsMember = known.has(g.created_by);
     return {
-      group: { id: g.id, name: g.name, code: g.code, isOwner: g.created_by === me },
-      me, members, expenses, settlements,
+      group: {
+        id: g.id, name: g.name, code: g.code, isOwner: g.created_by === me,
+        allSettled,
+        canLeave: (net[me] || 0) === 0,                                   // you can leave once YOUR balance is zero
+        // delete: only when everyone is settled, and by the creator (or anyone if the creator already left / you are the last one)
+        canDelete: allSettled && (g.created_by === me || !creatorIsMember || members.length === 1)
+      },
+      me, members, former, expenses, settlements,
       balances: net,
       transfers: simplify(net)
     };
@@ -618,6 +647,71 @@ function mountSplits(app, pool, requireAuth, helpers) {
     }
   });
 
+  // ---- Leave a group (only once YOUR balance is zero) ----
+  // Body: { deleteGroup: true } (only allowed when you are the last person in it)
+  app.post('/api/splits/groups/:id/leave', requireAuth, async (req, res) => {
+    const gid = parseInt(req.params.id, 10);
+    if (isNaN(gid)) return res.status(400).json({ error: 'Invalid id' });
+    const me = req.session.userId;
+    const deleteToo = !!(req.body && req.body.deleteGroup);
+    const client = await pool.connect();
+    try {
+      if (!(await isMember(client, gid, me))) { client.release(); return res.status(404).json({ error: 'Group not found' }); }
+      const d = await loadGroup(client, gid, me);
+      if (!d.group.canLeave) {
+        client.release();
+        const bal = d.balances[me] || 0;
+        return res.status(400).json({ error: 'Settle up first. ' + (bal > 0 ? 'You are still owed ' : 'You still owe ') + rs(Math.abs(bal)) + ' in this group.' });
+      }
+      const others = d.members.filter(m => m.id !== me).map(m => m.id);
+      if (deleteToo && others.length) { client.release(); return res.status(400).json({ error: 'Other people are still in this group' }); }
+
+      await client.query('BEGIN');
+      await client.query('DELETE FROM split_members WHERE group_id = $1 AND user_id = $2', [gid, me]);
+      let deleted = false;
+      if (deleteToo) {
+        const left = await client.query('SELECT COUNT(*)::int AS n FROM split_members WHERE group_id = $1', [gid]);
+        if (left.rows[0].n > 0) { await client.query('ROLLBACK'); client.release(); return res.status(400).json({ error: 'Other people are still in this group' }); }
+        await client.query('DELETE FROM split_groups WHERE id = $1', [gid]);      // takes its expenses and payments with it
+        deleted = true;
+      }
+      await client.query('COMMIT');
+      client.release();
+      if (!deleted) changed(gid, me, 'left the group');
+      res.json({ left: true, deleted, remaining: others.length });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      client.release();
+      console.error(e);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  // ---- Delete a whole group (everyone must be settled up) ----
+  app.delete('/api/splits/groups/:id', requireAuth, async (req, res) => {
+    const gid = parseInt(req.params.id, 10);
+    if (isNaN(gid)) return res.status(400).json({ error: 'Invalid id' });
+    const me = req.session.userId;
+    try {
+      if (!(await isMember(pool, gid, me))) return res.status(404).json({ error: 'Group not found' });
+      const d = await loadGroup(pool, gid, me);
+      if (!d.group.canDelete) {
+        return res.status(400).json({ error: !d.group.allSettled
+          ? 'Everyone must be settled up before the group can be deleted.'
+          : 'Only the person who created the group can delete it.' });
+      }
+      const others = d.members.filter(m => m.id !== me).map(m => m.id);
+      const actor = (await pool.query("SELECT NULLIF(TRIM(display_name), '') AS n FROM users WHERE id = $1", [me])).rows[0];
+      await pool.query('DELETE FROM split_groups WHERE id = $1', [gid]);
+      announce(gid, others);                                    // their open screens drop the group right away
+      pushToUsers(others, { title: d.group.name, body: ((actor && actor.n) || 'Someone') + ' deleted the group', tag: 'split-' + gid });
+      res.json({ deleted: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
   // ---- Add something to split ----
   // Body: { title, amount (rupees), paidBy (member id), splitAmong: [member ids], date }
   app.post('/api/splits/groups/:id/expenses', requireAuth, async (req, res) => {
@@ -679,7 +773,16 @@ function mountSplits(app, pool, requireAuth, helpers) {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
     try {
-      const r = await pool.query('DELETE FROM split_expenses WHERE id = $1 AND added_by = $2 RETURNING group_id, title, amount_paise', [id, req.session.userId]);
+      const me = req.session.userId;
+      const ex = (await pool.query('SELECT group_id, paid_by FROM split_expenses WHERE id = $1 AND added_by = $2', [id, me])).rows[0];
+      if (!ex || !(await isMember(pool, ex.group_id, me))) return res.status(404).json({ error: 'Entry not found, or it was added by someone else' });
+      const involved = new Set([ex.paid_by]);
+      (await pool.query('SELECT user_id FROM split_expense_shares WHERE expense_id = $1', [id])).rows.forEach(r => involved.add(r.user_id));
+      const active = await pool.query('SELECT 1 FROM split_members WHERE group_id = $1 AND user_id = ANY($2::int[])', [ex.group_id, [...involved]]);
+      if (active.rowCount !== involved.size) {
+        return res.status(400).json({ error: 'This entry includes someone who has left the group, so it can no longer be deleted.' });
+      }
+      const r = await pool.query('DELETE FROM split_expenses WHERE id = $1 AND added_by = $2 RETURNING group_id, title, amount_paise', [id, me]);
       if (r.rowCount === 0) return res.status(404).json({ error: 'Entry not found, or it was added by someone else' });
       changed(r.rows[0].group_id, req.session.userId, 'deleted "' + r.rows[0].title + '" (' + rs(Number(r.rows[0].amount_paise)) + ')');
       res.json({ success: true });
@@ -731,7 +834,12 @@ function mountSplits(app, pool, requireAuth, helpers) {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
     try {
-      const r = await pool.query('DELETE FROM split_settlements WHERE id = $1 AND created_by = $2 RETURNING group_id, amount_paise', [id, req.session.userId]);
+      const me = req.session.userId;
+      const st = (await pool.query('SELECT group_id, from_user, to_user FROM split_settlements WHERE id = $1 AND created_by = $2', [id, me])).rows[0];
+      if (!st || !(await isMember(pool, st.group_id, me))) return res.status(404).json({ error: 'Payment not found, or recorded by someone else' });
+      const active = await pool.query('SELECT 1 FROM split_members WHERE group_id = $1 AND user_id = ANY($2::int[])', [st.group_id, [st.from_user, st.to_user]]);
+      if (active.rowCount !== 2) return res.status(400).json({ error: 'This payment involves someone who has left the group, so it can no longer be undone.' });
+      const r = await pool.query('DELETE FROM split_settlements WHERE id = $1 AND created_by = $2 RETURNING group_id, amount_paise', [id, me]);
       if (r.rowCount === 0) return res.status(404).json({ error: 'Payment not found, or recorded by someone else' });
       changed(r.rows[0].group_id, req.session.userId, 'undid a payment of ' + rs(Number(r.rows[0].amount_paise)));
       res.json({ success: true });

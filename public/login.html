@@ -3,26 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#8B0000">
 <title>Login - Expense Tracker</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <style>
-  body { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px; }
-  .auth-card { width:100%; max-width:380px; background:var(--card-bg); border:1px solid var(--border);
-               border-radius:14px; padding:28px 24px; }
-  .auth-brand { display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:20px; color:var(--text); }
-  .auth-brand .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); display:inline-block; }
-  .auth-tabs { display:flex; gap:8px; margin-bottom:18px; }
-  .auth-tabs button { flex:1; padding:10px; border:1px solid var(--border); background:transparent;
-                      color:var(--muted); border-radius:8px; cursor:pointer; font-family:inherit; }
-  .auth-tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .auth-card input { width:100%; padding:11px 12px; margin-bottom:12px; border:1px solid var(--border);
-                     border-radius:8px; background:var(--bg); color:var(--text); font-family:inherit; font-size:14px; }
-  .auth-submit { width:100%; padding:12px; border:none; border-radius:8px; background:var(--accent);
-                 color:#fff; font-family:inherit; font-weight:600; cursor:pointer; }
-  .auth-error { color:var(--danger); font-size:13px; min-height:18px; margin-bottom:8px; }
+body { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px; }
+.auth-card { width:100%; max-width:380px; background:var(--card-bg); border:1px solid var(--border);
+  border-radius:14px; padding:28px 24px; }
+.auth-brand { display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:20px; color:var(--text); }
+.auth-brand .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); display:inline-block; }
+.auth-tabs { display:flex; gap:8px; margin-bottom:18px; }
+.auth-tabs button { flex:1; padding:10px; border:1px solid var(--border); background:transparent;
+  color:var(--muted); border-radius:8px; cursor:pointer; font-family:inherit; }
+.auth-tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.auth-card input { width:100%; padding:11px 12px; margin-bottom:12px; border:1px solid var(--border);
+  border-radius:8px; background:var(--bg); color:var(--text); font-family:inherit; font-size:14px; }
+.auth-submit { width:100%; padding:12px; border:none; border-radius:8px; background:var(--accent);
+  color:#fff; font-family:inherit; font-weight:600; cursor:pointer; }
+.auth-error { color:var(--danger); font-size:13px; min-height:18px; margin-bottom:8px; }
+.auth-forgot { text-align:center; margin-top:16px; font-size:13px; }
+.auth-forgot a { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
+.auth-forgot[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -36,43 +39,45 @@
   <input type="password" id="password" placeholder="Password" autocomplete="current-password">
   <div id="error" class="auth-error"></div>
   <button id="submit-btn" class="auth-submit" onclick="submitAuth()">Sign in</button>
+  <div class="auth-forgot" id="forgot-row"><a href="reset.html">Forgot password?</a></div>
 </div>
 
 <script>
-  document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
-  let mode = 'login';
+document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
+let mode = 'login';
 
-  fetch('/api/me').then(r => r.json()).then(d => { if (d.loggedIn) window.location.href = '/'; });
+fetch('/api/me').then(r => r.json()).then(d => { if (d.loggedIn) window.location.href = '/'; });
 
-  function setMode(m) {
-    mode = m;
-    document.getElementById('tab-login').classList.toggle('active', m === 'login');
-    document.getElementById('tab-register').classList.toggle('active', m === 'register');
-    document.getElementById('submit-btn').textContent = m === 'login' ? 'Sign in' : 'Create account';
-    document.getElementById('password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
-    document.getElementById('error').textContent = '';
+function setMode(m) {
+  mode = m;
+  document.getElementById('tab-login').classList.toggle('active', m === 'login');
+  document.getElementById('tab-register').classList.toggle('active', m === 'register');
+  document.getElementById('submit-btn').textContent = m === 'login' ? 'Sign in' : 'Create account';
+  document.getElementById('password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
+  document.getElementById('forgot-row').hidden = m !== 'login';   // only useful when signing in
+  document.getElementById('error').textContent = '';
+}
+
+async function submitAuth() {
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('error');
+  errEl.textContent = '';
+  try {
+    const res = await fetch(mode === 'login' ? '/api/login' : '/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || 'Something went wrong'; return; }
+    window.location.href = '/';
+  } catch (e) {
+    errEl.textContent = 'Could not reach the server';
   }
+}
 
-  async function submitAuth() {
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    const errEl = document.getElementById('error');
-    errEl.textContent = '';
-    try {
-      const res = await fetch(mode === 'login' ? '/api/login' : '/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      const data = await res.json();
-      if (!res.ok) { errEl.textContent = data.error || 'Something went wrong'; return; }
-      window.location.href = '/';
-    } catch (e) {
-      errEl.textContent = 'Could not reach the server';
-    }
-  }
-
-  document.addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
 </script>
 </body>
 </html>

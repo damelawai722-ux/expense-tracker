@@ -378,7 +378,10 @@ async function checkAuth() {
   displayName = data.displayName || '';
   window.myUserId = data.id;
   window.myAvatarDesc = data.avatar || null;
+  window.myEmail = data.email || '';
+  window.myEmailVerified = !!data.emailVerified;
   updateGreeting();
+  if (window.refreshAccountRows) window.refreshAccountRows();
   return true;
 }
 async function logout() {

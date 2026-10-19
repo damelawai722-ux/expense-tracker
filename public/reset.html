@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#8B0000">
+<title>Reset password - Expense Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+body { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px; }
+.auth-card { width:100%; max-width:380px; background:var(--card-bg); border:1px solid var(--border);
+  border-radius:14px; padding:28px 24px; }
+.auth-brand { display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:6px; color:var(--text); }
+.auth-brand .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); display:inline-block; }
+.auth-title { font-size:18px; font-weight:700; margin:14px 0 8px; color:var(--text); }
+.auth-text { font-size:13px; color:var(--muted); line-height:1.5; margin-bottom:16px; }
+.auth-card input { width:100%; padding:11px 12px; margin-bottom:12px; border:1px solid var(--border);
+  border-radius:8px; background:var(--bg); color:var(--text); font-family:inherit; font-size:14px; }
+.auth-submit { width:100%; padding:12px; border:none; border-radius:8px; background:var(--accent);
+  color:#fff; font-family:inherit; font-weight:600; cursor:pointer; }
+.auth-submit:disabled { opacity:.55; cursor:wait; }
+.auth-ghost { width:100%; padding:11px; margin-top:10px; border:1px solid var(--border); border-radius:8px;
+  background:transparent; color:var(--text); font-family:inherit; font-weight:600; cursor:pointer; }
+.auth-error { color:var(--danger); font-size:13px; min-height:18px; margin-bottom:8px; }
+.auth-ok { color:#1f9d63; font-size:13px; line-height:1.5; margin-bottom:14px; }
+.auth-link { text-align:center; margin-top:16px; font-size:13px; }
+.auth-link a { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
+.code-input { letter-spacing:8px; font-size:22px !important; text-align:center; }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="auth-card">
+  <div class="auth-brand"><span class="dot"></span> Expense Tracker</div>
+
+  <!-- Step 1: who are you? -->
+  <div id="step1">
+    <div class="auth-title">Reset your password</div>
+    <div class="auth-text">Enter your username or the verified email on your account. We will email you a 6-digit code.</div>
+    <input id="identifier" placeholder="Username or email" autocomplete="username" autocapitalize="none">
+    <div class="auth-error" id="err1"></div>
+    <button class="auth-submit" id="send">Send code</button>
+    <div class="auth-link"><a href="login.html">Back to sign in</a></div>
+  </div>
+
+  <!-- Step 2: code + new password -->
+  <div id="step2" hidden>
+    <div class="auth-title">Check your email</div>
+    <div class="auth-ok" id="info2"></div>
+    <input id="code" class="code-input" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
+    <input id="pw1" type="password" placeholder="New password (6+ characters)" autocomplete="new-password">
+    <input id="pw2" type="password" placeholder="Repeat new password" autocomplete="new-password">
+    <div class="auth-error" id="err2"></div>
+    <button class="auth-submit" id="reset">Set new password</button>
+    <button class="auth-ghost" id="again">Send a new code</button>
+    <div class="auth-link"><a href="login.html">Back to sign in</a></div>
+  </div>
+
+  <!-- Done -->
+  <div id="done" hidden>
+    <div class="auth-title">Password changed</div>
+    <div class="auth-ok">Your password was changed and you were signed out on all devices. Sign in with your new password.</div>
+    <button class="auth-submit" id="tologin">Go to sign in</button>
+  </div>
+</div>
+
+<script>
+document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
+const $ = id => document.getElementById(id);
+
+async function post(url, body) {
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let data = {}; try { data = await res.json(); } catch (e) {}
+    return { ok: res.ok, data };
+  } catch (e) { return { ok: false, data: { error: 'No connection. Check your internet and try again.' } }; }
+}
+
+async function sendCode() {
+  $('err1').textContent = '';
+  const id = $('identifier').value.trim();
+  if (!id) { $('err1').textContent = 'Enter your username or email'; return; }
+  $('send').disabled = true;
+  const r = await post('/api/auth/forgot', { identifier: id });
+  $('send').disabled = false;
+  if (!r.ok) { $('err1').textContent = r.data.error || 'Something went wrong'; return; }
+  $('info2').textContent = r.data.message;
+  $('step1').hidden = true; $('step2').hidden = false;
+  $('code').focus();
+}
+$('send').onclick = sendCode;
+$('identifier').addEventListener('keydown', e => { if (e.key === 'Enter') sendCode(); });
+
+$('again').onclick = async () => {
+  $('err2').textContent = '';
+  const r = await post('/api/auth/forgot', { identifier: $('identifier').value.trim() });
+  if (!r.ok) { $('err2').textContent = r.data.error || 'Could not resend'; return; }
+  $('info2').textContent = 'If a code can be sent, it is on its way. You can ask for a new one once a minute.';
+};
+
+$('code').addEventListener('input', () => { $('code').value = $('code').value.replace(/\D/g, ''); });
+async function doReset() {
+  $('err2').textContent = '';
+  const code = $('code').value.trim(), a = $('pw1').value, b = $('pw2').value;
+  if (code.length !== 6) { $('err2').textContent = 'Enter the 6-digit code from the email'; return; }
+  if (a.length < 6) { $('err2').textContent = 'Password must be at least 6 characters'; return; }
+  if (a !== b) { $('err2').textContent = 'The two passwords do not match'; return; }
+  $('reset').disabled = true;
+  const r = await post('/api/auth/reset', { identifier: $('identifier').value.trim(), code, newPassword: a });
+  $('reset').disabled = false;
+  if (!r.ok) { $('err2').textContent = r.data.error || 'Could not reset the password'; return; }
+  $('step2').hidden = true; $('done').hidden = false;
+}
+$('reset').onclick = doReset;
+$('pw2').addEventListener('keydown', e => { if (e.key === 'Enter') doReset(); });
+$('tologin').onclick = () => { location.href = 'login.html'; };
+</script>
+</body>
+</html>

@@ -20,7 +20,7 @@
       .sp-name { font-weight:700; font-size:15px; overflow-wrap:anywhere; }
       .sp-sub { font-size:12px; color:var(--muted); margin-top:3px; }
       .sp-get { color:#1f9d63; font-weight:800; white-space:nowrap; font-size:13px; }
-      .sp-owe { color:var(--danger); font-weight:800; white-space:nowrap; font-size:13px; }
+      .sp-owe { color:#ff453a; background:rgba(255,69,58,.16); padding:5px 11px; border-radius:999px; font-weight:800; white-space:nowrap; font-size:13px; }
       .sp-even { color:var(--muted); font-weight:600; white-space:nowrap; font-size:13px; }
       .sp-hero { border-radius:20px; padding:16px 18px; color:#fff; margin-bottom:6px;
                  background:linear-gradient(145deg,var(--hero-1),var(--hero-2)); }
@@ -55,9 +55,30 @@
       .sp-mchip.me { border-color:var(--bar-on); }
       .sp-hero span { display:block; margin-top:6px; font-size:12px; opacity:.75; }
 
-      .sp-flow { border:1px solid var(--border); background:var(--bg); border-radius:18px; padding:14px; margin-bottom:10px; }
-      .sp-flow.out { border-left:4px solid var(--danger); }
-      .sp-flow.in { border-left:4px solid #1f9d63; }
+      .sp-flow { border:1px solid var(--border); background:var(--bg); border-radius:18px; padding:14px; margin-bottom:12px; }
+      /* YOU PAY: loud red. YOU RECEIVE: bright green. Between others: quiet and dashed. */
+      .sp-flow.out { border:2px solid #ff453a; background:linear-gradient(135deg, rgba(255,69,58,.24), rgba(255,69,58,.07));
+                     box-shadow:0 0 0 4px rgba(255,69,58,.14), 0 8px 22px rgba(255,69,58,.28); }
+      .sp-flow.in  { border:2px solid #22c55e; background:linear-gradient(135deg, rgba(34,197,94,.22), rgba(34,197,94,.06));
+                     box-shadow:0 0 0 4px rgba(34,197,94,.12), 0 8px 22px rgba(34,197,94,.22); }
+      .sp-flow.other { border:1px dashed var(--border); opacity:.72; }
+      .sp-flag { display:inline-block; margin-bottom:12px; padding:4px 11px; border-radius:999px; font-size:11px; font-weight:800;
+                 letter-spacing:.9px; background:var(--border); color:var(--muted); }
+      .sp-flag.out { background:#ff453a; color:#fff; }
+      .sp-flag.in { background:#16a34a; color:#fff; }
+      .sp-flow.out .sp-arrow b { color:#ff453a; font-size:18px; }
+      .sp-flow.in .sp-arrow b { color:#16a34a; font-size:18px; }
+      .sp-flow.out .sp-arrow i { background:#ff453a; } .sp-flow.out .sp-arrow i::after { border-left-color:#ff453a; }
+      .sp-flow.in .sp-arrow i { background:#16a34a; } .sp-flow.in .sp-arrow i::after { border-left-color:#16a34a; }
+      .sp-mark.pay { background:#ff453a; border-color:#ff453a; color:#fff; font-size:15px; }
+      .sp-mark.recv { background:#16a34a; border-color:#16a34a; color:#fff; font-size:15px; }
+      .sp-hero.owe { background:linear-gradient(145deg, #ef4435, #8f1d14); }
+      .sp-row.owing { border-color:#ff453a; background:rgba(255,69,58,.10); }
+
+      .sp-opts { border:1px solid var(--border); border-radius:16px; padding:14px; background:var(--bg); }
+      .sp-opt-note { font-size:13px; font-weight:600; margin-bottom:12px; }
+      .sp-opt-note.ok { color:#16a34a; } .sp-opt-note.warn { color:#d35400; }
+      .sp-opt-btns { display:flex; gap:10px; flex-wrap:wrap; }
       .sp-flow-row { display:grid; grid-template-columns:1fr minmax(92px, 1.1fr) 1fr; align-items:center; gap:6px; }
       .sp-person { display:flex; flex-direction:column; align-items:center; text-align:center; gap:4px; min-width:0; }
       .sp-person .sp-av, .sp-person .av { width:46px; height:46px; font-size:22px; }
@@ -224,7 +245,7 @@
       '</div>' +
       (groups.length
         ? groups.map(g =>
-            '<div class="sp-row" data-g="' + g.id + '"><div><div class="sp-name">' + esc(g.name) + (g.unseen ? '<span class="sp-newpill">NEW</span>' : '') + '</div>' +
+            '<div class="sp-row' + (g.myBalance < 0 ? ' owing' : '') + '" data-g="' + g.id + '"><div><div class="sp-name">' + esc(g.name) + (g.unseen ? '<span class="sp-newpill">NEW</span>' : '') + '</div>' +
             '<div class="sp-sub">' + g.members + (g.members === 1 ? ' member' : ' members') + '</div></div>' +
             statusHtml(g.myBalance) + '</div>').join('')
         : '<div class="empty">No groups yet.<br>Create one for a trip or a flat, then share the code with friends.</div>') +
@@ -344,6 +365,7 @@
     if (!silent) body.innerHTML = '<div class="muted small">Loading…</div>';
     const r = await api('/api/splits/groups/' + gid);
     if (!r.ok) {
+      if (r.data.error === 'Group not found') { toast('This group is no longer available'); showList(ctx); return; }
       body.innerHTML = '<button class="sp-back" id="sp-b">‹ Back</button><div class="ui-error">' +
         esc(r.data.error || 'Could not load') + '</div>';
       body.querySelector('#sp-b').onclick = () => showList(ctx);
@@ -351,10 +373,10 @@
     }
     const d = r.data;
     const me = d.me;
-    const nameOf = id => id === me ? 'You' : ((d.members.find(m => m.id === id) || {}).name || 'Someone');
+    const nameOf = id => id === me ? 'You' : ((d.members.find(m => m.id === id) || (d.former || []).find(m => m.id === id) || {}).name || 'Someone');
     const myBal = d.balances[me] || 0;
 
-    const memberOf = id => d.members.find(m => m.id === id) || { id, name: 'Someone' };
+    const memberOf = id => d.members.find(m => m.id === id) || (d.former || []).find(m => m.id === id) || { id, name: 'Someone' };
     const dn = id => id === me ? 'You' : memberOf(id).name;           // display name
     const av = (id, small) => avatar(memberOf(id), small);
 
@@ -366,18 +388,23 @@
     const membersHtml = [...d.members].sort((a, b) => (b.id === me) - (a.id === me)).map(m =>
       `<span class="sp-mchip${m.id === me ? ' me' : ''}">${av(m.id)}<b>${esc(dn(m.id))}</b></span>`).join('');
 
-    // Who pays whom: person → arrow with amount → person
+    // Who pays whom: person → arrow with amount → person. Yours stand out: red = you pay, green = you receive.
     const transfersHtml = d.transfers.length
       ? d.transfers.map((t, i) => {
-          const involved = t.from === me || t.to === me;
-          const cls = t.from === me ? ' out' : t.to === me ? ' in' : '';
-          return `<div class="sp-flow${cls}">
+          const kind = t.from === me ? 'out' : t.to === me ? 'in' : 'other';
+          const flag = kind === 'out' ? '<span class="sp-flag out">⬆ YOU PAY</span>'
+            : kind === 'in' ? '<span class="sp-flag in">⬇ YOU RECEIVE</span>'
+            : '<span class="sp-flag">BETWEEN OTHERS</span>';
+          const btn = kind === 'out' ? `<button class="ui-btn sp-mark pay" data-pay="${i}">I’ve paid ${money(t.amount)}</button>`
+            : kind === 'in' ? `<button class="ui-btn sp-mark recv" data-pay="${i}">Mark as received</button>` : '';
+          return `<div class="sp-flow ${kind}">
+            ${flag}
             <div class="sp-flow-row">
               <div class="sp-person">${av(t.from)}<span>${esc(dn(t.from))}</span><small>pays</small></div>
               <div class="sp-arrow"><b>${money(t.amount)}</b><i></i></div>
               <div class="sp-person">${av(t.to)}<span>${esc(dn(t.to))}</span><small>receives</small></div>
             </div>
-            ${involved ? `<button class="ui-btn sp-mark" data-pay="${i}">Mark as paid</button>` : ''}
+            ${btn}
           </div>`;
         }).join('')
       : '<div class="sp-empty">🎉 Nobody owes anything. Everyone is even.</div>';
@@ -439,19 +466,36 @@
         <button class="ui-btn" id="sp-share">Invite code <span class="sp-code">${esc(d.group.code)}</span></button></div>
       <div class="sp-gname">${esc(d.group.name)}</div>
       <div class="sp-members">${membersHtml}</div>
-      <div class="sp-hero"><small>${heroLabel}</small><b>${heroAmt}</b>
+      <div class="sp-hero${myBal < 0 ? ' owe' : ''}"><small>${heroLabel}</small><b>${heroAmt}</b>
         <span>Group total ${money(totalSpent)} · ${d.members.length} ${d.members.length === 1 ? 'person' : 'people'}</span></div>
       <div class="ui-actions" style="justify-content:flex-start;margin-top:12px"><button class="ui-btn primary" id="sp-add">+ Add expense to split</button></div>
       <div class="sp-title">WHO PAYS WHOM</div>${transfersHtml}
       ${rankHtml ? `<div class="sp-title">WHO PAID THE MOST</div>${rankHtml}` : ''}
       <div class="sp-title">EXPENSES</div>${expHtml}
       ${setHtml ? `<div class="sp-title">PAYMENTS MADE</div>${setHtml}` : ''}
+      <div class="sp-title">GROUP OPTIONS</div>
+      <div class="sp-opts">
+        <div class="sp-opt-note ${d.group.canLeave ? 'ok' : 'warn'}">${d.group.canLeave
+          ? '✓ You’re settled up, so you can leave this group.'
+          : '⚠ Settle up first: you ' + (myBal > 0 ? 'are still owed ' : 'still owe ') + money(myBal) + '. Then you can leave.'}</div>
+        <div class="sp-opt-btns">
+          <button class="ui-btn" id="sp-leave" ${d.group.canLeave ? '' : 'disabled'}>Leave group</button>
+          ${d.group.canDelete ? '<button class="ui-btn danger" id="sp-delgroup">Delete group</button>' : ''}
+        </div>
+        ${d.group.canDelete ? '' : `<div class="sp-note">${d.group.allSettled
+          ? 'Only the person who created the group can delete it.'
+          : 'The group can be deleted once everyone is settled up.'}</div>`}
+      </div>
       <div class="sp-live"><span class="sp-dot"></span>Live · changes appear instantly for everyone</div>
       <div class="sp-note" style="text-align:center">Only the person who added an entry can delete it.</div>`;
 
     body.querySelector('#sp-b').onclick = () => showList(ctx);
     body.querySelector('#sp-add').onclick = () => showAddExpense(ctx, d);
     refreshBadgeSoon();
+    const leaveBtn = body.querySelector('#sp-leave');
+    if (leaveBtn) leaveBtn.onclick = () => leaveFlow(ctx, d);
+    const delBtn = body.querySelector('#sp-delgroup');
+    if (delBtn) delBtn.onclick = () => deleteGroupFlow(ctx, d);
     body.querySelector('#sp-share').onclick = async () => {
       const text = 'Join my group "' + d.group.name + '" on Expense Tracker. Invite code: ' + d.group.code;
       if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { /* cancelled */ } }
@@ -490,6 +534,49 @@
     body.querySelectorAll('[data-track]').forEach(btn => {
       btn.onclick = () => askCategoryAndAdd(btn.dataset.track, Number(btn.dataset.share), btn.dataset.title, () => showGroup(ctx, gid));
     });
+  }
+
+  // ------------------------- leave / delete a group -------------------------
+  async function doLeave(ctx, d, deleteGroup, closeFn) {
+    const r = await api('/api/splits/groups/' + d.group.id + '/leave', jsonOpts('POST', { deleteGroup }));
+    if (closeFn) closeFn();
+    if (!r.ok) { toast(r.data.error || 'Could not leave'); showGroup(ctx, d.group.id, true); return; }
+    toast(r.data.deleted ? 'Group deleted' : 'You left the group');
+    showList(ctx);
+  }
+
+  async function leaveFlow(ctx, d) {
+    const name = d.group.name;
+    if (d.members.length > 1) {
+      const ok = await confirmModal('Leave group',
+        ['Leave “' + name + '”?', 'Your past entries stay in the group’s history. You can rejoin later with the invite code.'], 'Leave');
+      if (ok) doLeave(ctx, d, false);
+      return;
+    }
+    // last person in the group: leave it behind, or delete it?
+    const { body, close } = openModal('Leave group');
+    body.innerHTML =
+      '<div style="font-size:14px;margin-bottom:14px">You are the last person in “' + esc(name) + '”. What should happen to the group?</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px">' +
+        '<button class="ui-btn danger" id="lv-del">Leave and delete the group</button>' +
+        '<button class="ui-btn" id="lv-keep">Leave, but keep the group</button>' +
+        '<button class="ui-btn" id="lv-no">Cancel</button></div>' +
+      '<div class="sp-note">A kept group stays saved. Anyone with its invite code, including you, can join it again.</div>';
+    body.querySelector('#lv-no').onclick = close;
+    body.querySelector('#lv-keep').onclick = () => doLeave(ctx, d, false, close);
+    body.querySelector('#lv-del').onclick = () => doLeave(ctx, d, true, close);
+  }
+
+  async function deleteGroupFlow(ctx, d) {
+    const n = d.members.length;
+    const ok = await confirmModal('Delete group',
+      ['Delete “' + d.group.name + '” for ' + (n === 1 ? 'good' : 'all ' + n + ' members') + '?',
+       'All its expenses and payments are removed for everyone. This can’t be undone.'], 'Delete group');
+    if (!ok) return;
+    const r = await api('/api/splits/groups/' + d.group.id, { method: 'DELETE' });
+    if (!r.ok) { toast(r.data.error || 'Could not delete the group'); return; }
+    toast('Group deleted');
+    showList(ctx);
   }
 
   // Pick a category, then copy MY share into my own tracker
