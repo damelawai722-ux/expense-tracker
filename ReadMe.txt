@@ -31,7 +31,7 @@ A full-stack expense tracking web app with budgets, receipt scanning, shared bil
 
 This project is being handled and completed by **Damepynjanai Lawai** as a college project, to be submitted to his respected teacher.
 
-**Live app:** `<add your Render URL here>`
+**Live app:** `https://expense-tracker-3-9kwp.onrender.com/`
 
 ---
 
