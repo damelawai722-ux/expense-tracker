@@ -115,7 +115,7 @@ function runSpotlightTour(steps, onClose) {
     const s = steps[i], last = i === steps.length - 1;
     const el = s.sel && document.querySelector(s.sel);
     card.innerHTML =
-      '<div class="gt-who"><div class="gt-av" style="background:url(guide.png) center/cover"></div><div><div class="gt-name">Sam, your guide</div>' +
+      '<div class="gt-who"><div class="gt-av" style="background:url(guide.png) center/cover"></div><div><div class="gt-name">Dame, your guide</div>' +
       '<div class="gt-room">' + s.who + '</div></div></div>' +
       '<div class="gt-say">' + s.say + '</div>' +
       '<div class="ui-actions">' +
@@ -167,7 +167,7 @@ function runSpotlightTour(steps, onClose) {
 }
 
 const WELCOME_TOUR = [
-  { view: 'home', who: 'WELCOME', say: "Welcome in! I'm Sam, and I'll show you around, step by step. Follow me!" },
+  { view: 'home', who: 'WELCOME', say: "Welcome in! I'm Dame, and I'll show you around, step by step. Follow me!" },
   { view: 'home', sel: '.hero', who: 'THE LIVING ROOM · HOME', say: "This is the main part. The big card shows everything you've spent this month." },
   { view: 'home', sel: '#budget-display', who: 'THE LIVING ROOM · HOME', say: "Tap here to set a monthly budget. The bar fills as you spend, and you'll get a warning at 75%, 90% and 100%." },
   { view: 'home', sel: '#month-bar', who: 'THE CALENDAR WALL', say: "Use the arrows, or tap the month name, to visit any month or year. Every month has its own budget." },
