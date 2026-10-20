@@ -135,7 +135,7 @@ function runSpotlightTour(steps, onClose) {
     if (s.big) {                                 // final step: guide's photo grows to the centre
       card.innerHTML =
         '<div class="gt-big-av"></div>' +
-        '<div class="gt-name" style="font-size:18px">Sam, your guide</div>' +
+        '<div class="gt-name" style="font-size:18px">Dame, your guide</div>' +
         '<div class="gt-room" style="margin:4px 0 12px">' + s.who + '</div>' +
         '<div class="gt-say">' + s.say + '</div>' +
         '<div class="ui-actions" style="justify-content:center"><button class="ui-btn primary" id="gt-next">Finish</button></div>';
