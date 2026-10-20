@@ -115,7 +115,7 @@ function runSpotlightTour(steps, onClose) {
     const s = steps[i], last = i === steps.length - 1;
     const el = s.sel && document.querySelector(s.sel);
     card.innerHTML =
-      '<div class="gt-who"><div class="gt-av">🧑‍💼</div><div><div class="gt-name">Sam, your guide</div>' +
+      '<div class="gt-who"><div class="gt-av" style="background:url(guide.png) center/cover"></div><div><div class="gt-name">Sam, your guide</div>' +
       '<div class="gt-room">' + s.who + '</div></div></div>' +
       '<div class="gt-say">' + s.say + '</div>' +
       '<div class="ui-actions">' +
@@ -167,8 +167,8 @@ function runSpotlightTour(steps, onClose) {
 }
 
 const WELCOME_TOUR = [
-  { view: 'home', who: 'WELCOME', say: "Welcome in! I'm Sam, and I'll show you around your new money home, room by room. Follow me!" },
-  { view: 'home', sel: '.hero', who: 'THE LIVING ROOM · HOME', say: "This is the main room. The big card shows everything you've spent this month." },
+  { view: 'home', who: 'WELCOME', say: "Welcome in! I'm Sam, and I'll show you around, step by step. Follow me!" },
+  { view: 'home', sel: '.hero', who: 'THE LIVING ROOM · HOME', say: "This is the main part. The big card shows everything you've spent this month." },
   { view: 'home', sel: '#budget-display', who: 'THE LIVING ROOM · HOME', say: "Tap here to set a monthly budget. The bar fills as you spend, and you'll get a warning at 75%, 90% and 100%." },
   { view: 'home', sel: '#month-bar', who: 'THE CALENDAR WALL', say: "Use the arrows, or tap the month name, to visit any month or year. Every month has its own budget." },
   { view: 'home', sel: '#quick-actions', who: 'THE UTILITY CORNER', say: "Budgets sets a limit for each category, Insights shows what was worth it or a regret, and Splits shares costs with friends." },
@@ -176,7 +176,7 @@ const WELCOME_TOUR = [
   { view: 'expenses', sel: '.search-row', who: 'THE STUDY · EXPENSES', say: "Every expense lives in here, grouped by day. Search by note, amount or date, filter by category, or press Select to delete several at once." },
   { view: 'analytics', sel: '#view-analytics .card', who: 'THE GALLERY · ANALYTICS', say: "Your spending as charts: a bar for each day, and a ring showing where your money went." },
   { view: 'settings', sel: '.settings-list', who: 'THE CONTROL ROOM · SETTINGS', say: "Profile picture, theme colours, dark mode, export and password all live here. The Help button brings me back any time." },
-  { view: 'home', who: 'END OF THE TOUR', say: "That's the whole house! Tap + to add your first expense. Enjoy your new home!" }
+  { view: 'home', who: 'END OF THE TOUR', say: "That's the whole house! Tap + to add your first expense. Enjoy yourself!!" }
 ];
 // =====================================================================
 //  1) WELCOME TOUR
