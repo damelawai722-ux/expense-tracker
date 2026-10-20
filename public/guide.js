@@ -101,7 +101,12 @@ function runSpotlightTour(steps, onClose) {
         background:linear-gradient(145deg,var(--hero-1),var(--hero-2))}
       .gt-room{font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted)}
       .gt-name{font-weight:800;font-size:14px}
-      .gt-say{font-size:14px;line-height:1.5}`;
+      .gt-say{font-size:14px;line-height:1.5}
+      .gt-card.big{text-align:center;padding:0 20px 20px}
+      .gt-big-av{width:130px;height:130px;border-radius:50%;margin:-65px auto 12px;border:4px solid var(--lime);
+        background:url(guide.png) center/cover, linear-gradient(145deg,var(--hero-1),var(--hero-2));
+        animation:gtGrow .7s cubic-bezier(.3,1.5,.5,1)}
+      @keyframes gtGrow{from{transform:scale(.25) translateY(70px);opacity:0}to{transform:none;opacity:1}}`;
     document.head.appendChild(st);
   }
   let i = 0;
@@ -125,6 +130,21 @@ function runSpotlightTour(steps, onClose) {
     card.querySelector('#gt-next').onclick = () => last ? finish() : go(i + 1);
     const b = card.querySelector('#gt-back'); if (b) b.onclick = () => go(i - 1);
     const k = card.querySelector('#gt-skip'); if (k) k.onclick = finish;
+
+    card.classList.toggle('big', !!s.big);
+    if (s.big) {                                 // final step: guide's photo grows to the centre
+      card.innerHTML =
+        '<div class="gt-big-av"></div>' +
+        '<div class="gt-name" style="font-size:18px">Sam, your guide</div>' +
+        '<div class="gt-room" style="margin:4px 0 12px">' + s.who + '</div>' +
+        '<div class="gt-say">' + s.say + '</div>' +
+        '<div class="ui-actions" style="justify-content:center"><button class="ui-btn primary" id="gt-next">Finish</button></div>';
+      card.querySelector('#gt-next').onclick = finish;
+      spot.style.display = arrow.style.display = 'none';
+      block.style.background = 'rgba(0,0,0,.7)';
+      Object.assign(card.style, { top: '50%', bottom: 'auto', transform: 'translate(-50%,-50%)' });
+      return;
+    }
 
     if (!el) {                                   // no target: centred card on a dimmed screen
       spot.style.display = arrow.style.display = 'none';
@@ -176,7 +196,7 @@ const WELCOME_TOUR = [
   { view: 'expenses', sel: '.search-row', who: 'THE STUDY · EXPENSES', say: "Every expense lives in here, grouped by day. Search by note, amount or date, filter by category, or press Select to delete several at once." },
   { view: 'analytics', sel: '#view-analytics .card', who: 'THE GALLERY · ANALYTICS', say: "Your spending as charts: a bar for each day, and a ring showing where your money went." },
   { view: 'settings', sel: '.settings-list', who: 'THE CONTROL ROOM · SETTINGS', say: "Profile picture, theme colours, dark mode, export and password all live here. The Help button brings me back any time." },
-  { view: 'home', who: 'END OF THE TOUR', say: "That's the whole house! Tap + to add your first expense. Enjoy yourself!!" }
+  { view: 'home', big: true, who: 'END OF THE TOUR', say: "That's All! Tap + to add your first expense. Enjoy yourself!!" }
 ];
 // =====================================================================
 //  1) WELCOME TOUR
