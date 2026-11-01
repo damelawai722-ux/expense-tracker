@@ -32,24 +32,55 @@ You will need Node.js and a PostgreSQL database.
    npm install
    ```
 
-2. Create a PostgreSQL database and add a `.env` file in the project root:
+2. Start PostgreSQL and create a database for local work:
+
+   ```sh
+   docker run --name expense-pg \
+     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+     -e POSTGRES_DB=expense_tracker \
+     -p 5432:5432 -d postgres:16
+   ```
+
+   Any PostgreSQL server works; create an empty database and the app fills in the tables it needs.
+
+3. Add a `.env` file in the project root:
 
    ```dotenv
-   DATABASE_URL=postgresql://username:password@localhost:5432/expense_tracker
+   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/expense_tracker
    SESSION_SECRET=replace-with-a-long-random-secret
    ```
 
    Do not commit `.env` or real credentials to GitHub. The server requires `DATABASE_URL`; use a unique, long `SESSION_SECRET` outside local development.
 
-3. Start the server, loading the `.env` file:
+4. Start the server with the development script, which loads `.env` for you:
 
    ```sh
-   node -r dotenv/config server.js
+   npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) and create an account.
+   `npm start` does **not** read `.env`, so it fails locally with `Database setup failed` unless the variables are already set in your shell. Use `npm run dev` while developing; `npm start` is for a host that supplies the variables itself.
+
+5. Open [http://localhost:3000](http://localhost:3000) and create an account. To use another port, set `PORT`:
+
+   ```sh
+   PORT=3100 npm run dev
+   ```
+
+### Stop the server
+
+Press `Ctrl+C` in the terminal running the server. Then stop the database:
+
+```sh
+# Docker
+docker stop expense-pg      # start it again with: docker start expense-pg
+
+# PostgreSQL installed on the system
+sudo service postgresql stop
+```
 
 The app creates and updates its PostgreSQL tables when it starts. The local `expense.db` file is a leftover from an earlier version and is not used by the current server; it is ignored by Git.
+
+Use a separate database for local development. Pointing a local `.env` at the deployment's `DATABASE_URL` makes local testing share real data, and the delete-all and bulk-delete routes would affect production.
 
 ### Optional integrations
 
