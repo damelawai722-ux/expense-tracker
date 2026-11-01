@@ -49,7 +49,7 @@ You will need Node.js and a PostgreSQL database.
 
 4. Open [http://localhost:3000](http://localhost:3000) and create an account.
 
-The app creates and updates its PostgreSQL tables when it starts. The `expense.db` file in this repository is not the database used by the current server.
+The app creates and updates its PostgreSQL tables when it starts. The local `expense.db` file is a leftover from an earlier version and is not used by the current server; it is ignored by Git.
 
 ### Optional integrations
 

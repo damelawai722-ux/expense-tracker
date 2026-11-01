@@ -1,1 +1,6 @@
+node_modules/
 .env
+
+# The server uses PostgreSQL; this is a stale local file only.
+expense.db
+expense.db-journal
