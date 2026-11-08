@@ -77,11 +77,11 @@ applyTheme(localStorage.getItem('theme') || 'light');
 
 // ---- Colour themes (Settings > Theme color) ----
 const COLOR_THEMES = {
-  forest: { label: 'Forest', hero: '#1E5238', hero2: '#0F2E20', accent: '#C6F432' },
-  ocean:  { label: 'Ocean',  hero: '#2468B8', hero2: '#0B2B52', accent: '#5CE1E6' },
-  sunset: { label: 'Sunset', hero: '#D9531E', hero2: '#7C1D0A', accent: '#FFC857' },
-  violet: { label: 'Violet', hero: '#6A4BD6', hero2: '#2B1A6B', accent: '#D6A8FF' },
-  rose:   { label: 'Rose',   hero: '#C9235F', hero2: '#6B0F33', accent: '#FFB3CC' }
+  forest: { label: 'Forest', hero: '#1E5238', hero2: '#0F2E20', accent: '#C6F432', metal: '#D4AF6A' },
+  ocean:  { label: 'Ocean',  hero: '#2468B8', hero2: '#0B2B52', accent: '#5CE1E6', metal: '#C5D0DE' },
+  sunset: { label: 'Sunset', hero: '#D9531E', hero2: '#7C1D0A', accent: '#FFC857', metal: '#F0C98E' },
+  violet: { label: 'Violet', hero: '#6A4BD6', hero2: '#2B1A6B', accent: '#D6A8FF', metal: '#E0C583' },
+  rose:   { label: 'Rose',   hero: '#C9235F', hero2: '#6B0F33', accent: '#FFB3CC', metal: '#EBCDB4' }
 };
 function applyColor(name) {
   if (!COLOR_THEMES[name]) name = 'forest';
@@ -814,10 +814,12 @@ function renderBarChart(year, month, monthExpenses) {
   });
 
   const labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1).padStart(2, '0'));
-  const colors = dailyTotals.map(v => v > 0 ? cssVar('--bar-on') : cssVar('--bar-off'));
-
   const maxVal = Math.max(...dailyTotals);
   const maxDay = dailyTotals.indexOf(maxVal) + 1;
+  const peakIdx = maxVal > 0 ? maxDay - 1 : -1;
+  const colors = dailyTotals.map((v, i) =>
+    i === peakIdx ? cssVar('--metal') : v > 0 ? cssVar('--bar-main') : cssVar('--bar-off'));
+
   const captionEl = document.getElementById('outlay-caption');
   if (captionEl) {
     captionEl.textContent = maxVal > 0
@@ -833,8 +835,9 @@ function renderBarChart(year, month, monthExpenses) {
       datasets: [{
         data: dailyTotals,
         backgroundColor: colors,
-        maxBarThickness: 12,
-        borderRadius: 4,
+        maxBarThickness: 22,
+        barPercentage: 0.8,
+        borderRadius: 6,
         minBarLength: 3
       }]
     },
@@ -852,7 +855,18 @@ function renderBarChart(year, month, monthExpenses) {
       },
       scales: {
         y: { display: false },
-        x: { display: false }
+        x: {
+          display: true,
+          grid: { display: false },
+          border: { display: false },
+          ticks: {
+            color: cssVar('--muted'),
+            font: { size: 10 },
+            autoSkip: false,
+            maxRotation: 0,
+            callback: (v, i) => (i === 0 || (i + 1) % 5 === 0) ? String(i + 1) : ''
+          }
+        }
       }
     }
   });
@@ -1656,7 +1670,7 @@ function openThemePicker() {
       Object.entries(COLOR_THEMES).map(([k, t]) =>
         '<button class="theme-opt' + (k === current ? ' active' : '') + '" data-c="' + k + '">' +
           '<span class="theme-dot" style="background:linear-gradient(135deg,' + t.hero + ',' + t.hero2 + ')">' +
-            '<i style="background:' + t.accent + '"></i></span>' +
+            '<i style="background:' + t.metal + '"></i></span>' +
           '<span>' + t.label + '</span></button>').join('') +
     '</div>' +
     '<div class="ui-hint" style="margin-top:12px">Works in both light and dark mode.</div>' +

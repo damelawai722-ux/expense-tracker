@@ -748,3 +748,67 @@ button { font-family: inherit; }
   #view-expenses .day-head { margin: 16px 2px 8px; }
   #view-expenses .chip { padding: 8px 14px; }
 }
+
+/* =====================================================================
+   Premium finish: each colour theme gets its own metallic accent
+   Lime stays only on the Add buttons.
+   ===================================================================== */
+:root {
+  --metal: #D4AF6A; --metal-2: #EBD7A6; --metal-3: #B8924A;
+  --metal-grad: linear-gradient(135deg, var(--metal-2), var(--metal-3));
+  --bar-main: #2E7A58;
+  --bg: #F4F1EA;
+  --border: #E8E3D6;
+  --shadow-soft: 0 1px 2px rgba(20,32,26,.04), 0 10px 28px rgba(20,32,26,.07);
+}
+[data-theme="dark"] {
+  --bg: #0B100D;
+  --card-bg: #141B16;
+  --border: #222B25;
+  --shadow-soft: 0 10px 28px rgba(0,0,0,.35);
+}
+[data-color="ocean"]  { --metal: #C5D0DE; --metal-2: #E8EEF5; --metal-3: #8FA3BA; --bar-main: #2F7FD0; }
+[data-color="sunset"] { --metal: #F0C98E; --metal-2: #F8E3C2; --metal-3: #CF9358; --bar-main: #D9531E; }
+[data-color="violet"] { --metal: #E0C583; --metal-2: #F0DFAE; --metal-3: #B3924A; --bar-main: #7C5CE0; }
+[data-color="rose"]   { --metal: #EBCDB4; --metal-2: #F6E6D6; --metal-3: #C49A7C; --bar-main: #D43B76; }
+
+/* ---------- Cards: soft layered shadow ---------- */
+.card, .expense-row, .qa-btn, .set-row, .month-bar { box-shadow: var(--shadow-soft); }
+.card-title, .hero-label { letter-spacing: 1.6px; }
+
+/* ---------- Hero: depth, a faint glow and a thin metal edge ---------- */
+.hero {
+  border: 1px solid color-mix(in srgb, var(--metal) 38%, transparent);
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--metal) 20%, transparent), transparent 55%),
+    linear-gradient(145deg, var(--hero-1), var(--hero-2));
+  box-shadow: 0 14px 34px rgba(0,0,0,.22);
+}
+.hero-label { color: var(--metal-2); opacity: .9; }
+.hero-amount {
+  background: linear-gradient(180deg, #ffffff 15%, var(--metal-2) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.progress-fill { background: var(--metal-grad); }   /* warn/high/danger colours still win */
+
+/* ---------- Small touches ---------- */
+.day-pill { color: var(--metal-2); }
+.chip.active { color: var(--metal-2); }
+.nav-item.active { box-shadow: inset 0 -2px 0 var(--metal); }
+
+/* ---------- Desktop top bar ---------- */
+@media (min-width: 1024px) {
+  .bottom-nav { border-bottom: 1px solid color-mix(in srgb, var(--metal) 30%, transparent); }
+  .nav-brand-mark { background: var(--metal-grad); color: #1a1405; }
+  .nav-brand-text b, .nav-brand-text small {
+    background: var(--metal-grad);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .nav-item.active { color: var(--metal-2); background: rgba(255,255,255,.1); }
+
+  /* chart a little taller to fit the day labels */
+  #view-home .chart-box-small { height: 150px; }
+  #view-home .chart-box-small canvas { max-height: 150px !important; }
+}
