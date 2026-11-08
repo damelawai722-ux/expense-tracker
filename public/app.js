@@ -1682,6 +1682,7 @@ function showView(name) {
 
 // ---- Add expense sheet (the + button) ----
 function openAddSheet() {
+  if (desktopMQ.matches) { document.getElementById('amount').focus(); return; }
   document.getElementById('add-sheet').classList.add('open');
   document.body.classList.add('no-scroll');
   setTimeout(() => document.getElementById('amount').focus(), 150);
@@ -1733,6 +1734,26 @@ document.getElementById('month-label').addEventListener('click', openMonthPicker
   const del = document.getElementById('sel-del');
   if (del) del.addEventListener('click', deleteSelected);
 })();
+
+// ---- Desktop dashboard: on wide screens Home also holds the add form and the two charts ----
+const desktopMQ = window.matchMedia('(min-width: 1024px)');
+const dockParts = ['add-sheet', 'card-outlay', 'card-category'].map(id => {
+  const el = document.getElementById(id);
+  return { el, parent: el.parentNode, next: el.nextSibling };
+});
+function applyDesktopLayout() {
+  const home = document.getElementById('view-home');
+  if (desktopMQ.matches) {
+    dockParts.forEach(p => home.appendChild(p.el));
+    if (document.getElementById('view-analytics').classList.contains('active')) showView('home');
+  } else {
+    [...dockParts].reverse().forEach(p => p.parent.insertBefore(p.el, p.next));
+    closeAddSheet();
+  }
+  if (currentUser) renderAll();   // redraw charts at their new size
+}
+desktopMQ.addEventListener('change', applyDesktopLayout);
+applyDesktopLayout();
 
 checkAuth().then(async ok => {
   if (ok) {

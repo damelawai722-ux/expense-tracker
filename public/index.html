@@ -49,11 +49,13 @@
 
       <div class="quick-actions" id="quick-actions"></div>
 
-      <div class="section-head">
-        <h2>Recent</h2>
-        <button class="link-btn" id="view-all-btn" onclick="showView('expenses')">See all</button>
+      <div class="recent-wrap">
+        <div class="section-head">
+          <h2>Recent</h2>
+          <button class="link-btn" id="view-all-btn" onclick="showView('expenses')">See all</button>
+        </div>
+        <div id="expense-list-new"></div>
       </div>
-      <div id="expense-list-new"></div>
 
     </section>
 
@@ -92,7 +94,7 @@
 
       <div class="section-head first"><h2>Analytics</h2></div>
 
-      <div class="card">
+      <div class="card" id="card-outlay">
         <div class="card-title">DAILY OUTLAY</div>
         <div class="chart-box-small">
           <canvas id="barChart"></canvas>
@@ -100,7 +102,7 @@
         <div id="outlay-caption" class="muted small" style="margin-top:10px;"></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="card-category">
         <div class="card-title">BY CATEGORY</div>
         <div class="category-flex">
           <div class="ring-wrap">
