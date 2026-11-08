@@ -104,12 +104,8 @@ function injectUiStyles() {
   s.id = 'ui-styles';
   s.textContent = `
     .ui-toolbar { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
-    .ui-btn { border: 1px solid rgba(128,128,128,.35); background: transparent; color: inherit; font: inherit;
-              font-size: 13px; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
-    .ui-btn:hover { background: rgba(128,128,128,.12); }
     .ui-btn.primary { background: #8B0000; border-color: #8B0000; color: #fff; }
     .ui-btn.primary:hover { background: #a00000; }
-    .ui-btn.danger { color: #d62828; border-color: rgba(214,40,40,.5); }
     .ui-badge { display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 6px; border-radius: 999px;
                 font-size: 11px; color: #fff; background: #d35400; }
     .ui-badge.danger { background: #d62828; }
@@ -168,7 +164,6 @@ function injectUiStyles() {
     .ui-btn.primary:hover { background: var(--lime); opacity: .9; }
     .ui-month.current { background: var(--lime); border-color: var(--lime); color: var(--on-lime); font-weight: 700; }
     .ui-panel { border-radius: 24px; }
-    .qa-ico { font-size: 16px; }
     @media (max-width: 600px) {
       .ui-overlay { align-items: flex-end; padding: 0; }
       .ui-panel { max-width: none !important; border-radius: 26px 26px 0 0; max-height: 90vh; padding-bottom: 28px; }
@@ -179,39 +174,6 @@ function injectUiStyles() {
                 box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 1000; font-size: 14px; }
     .cb-toast.high { background: #d35400; }
     .cb-toast.danger { background: #d62828; }
-    #month-label { cursor: pointer; }
-
-    /* search + select on the Expenses tab */
-    .search-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
-    .search-box { position: relative; flex: 1; min-width: 0; }
-    .search-box svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px;
-                      stroke: var(--muted); fill: none; stroke-width: 2; stroke-linecap: round; pointer-events: none; }
-    .search-box input { width: 100%; min-width: 0; font: inherit; font-size: 16px; padding: 12px 40px 12px 40px;
-                        border-radius: 999px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); }
-    .search-box input::-webkit-search-cancel-button { display: none; }
-    .search-box input:focus { outline: 2px solid var(--bar-on); border-color: transparent; }
-    .search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px;
-                    border-radius: 50%; border: 0; background: var(--bg); color: var(--muted); cursor: pointer; font-size: 13px; }
-    .search-clear[hidden] { display: none; }
-    .expense-row .sel-box { width: 24px; height: 24px; border-radius: 8px; border: 2px solid var(--muted); flex-shrink: 0;
-                            display: grid; place-items: center; font-size: 14px; font-weight: 800; color: var(--on-lime); }
-    .expense-row.selected { border-color: var(--bar-on); }
-    .expense-row.selected .sel-box { background: var(--lime); border-color: var(--lime); }
-    .select-bar { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 560px; z-index: 750;
-                  display: flex; align-items: center; gap: 8px; background: var(--card-bg); border-top: 1px solid var(--border);
-                  border-radius: 26px 26px 0 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
-                  box-shadow: 0 -8px 24px rgba(0,0,0,.22); }
-    .select-bar[hidden] { display: none; }
-    .select-bar .sel-count { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; }
-    .ui-btn:disabled { opacity: .4; cursor: not-allowed; }
-
-    /* sweeping bar while a receipt is being read */
-    .scan-progress { position: relative; height: 5px; border-radius: 5px; background: var(--border); overflow: hidden; margin: -4px 0 14px; }
-    .scan-progress[hidden] { display: none; }
-    .scan-progress i { position: absolute; top: 0; left: 0; height: 100%; width: 38%; border-radius: 5px;
-                       background: linear-gradient(90deg, transparent, var(--bar-on) 35%, var(--bar-on) 65%, transparent);
-                       animation: scanSweep 1.2s ease-in-out infinite; }
-    @keyframes scanSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(265%); } }
   `;
   document.head.appendChild(s);
 }

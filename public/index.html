@@ -207,6 +207,10 @@
 
 <!-- Bottom navigation -->
 <nav class="bottom-nav">
+  <div class="nav-brand">
+    <span class="nav-brand-mark">₹</span>
+    <span class="nav-brand-text"><b>Expense Tracker</b><small>by Dame</small></span>
+  </div>
   <button class="nav-item active" data-view="home" onclick="showView('home')">
     <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
     <span>Home</span>
@@ -216,7 +220,7 @@
     <span>Expenses</span>
   </button>
   <div class="nav-fab">
-    <button class="fab" onclick="openAddSheet()" aria-label="Add expense">+</button>
+    <button class="fab" onclick="openAddSheet()" aria-label="Add expense"><span class="fab-plus" aria-hidden="true">+</span><span class="fab-label">Add expense</span></button>
   </div>
   <button class="nav-item" data-view="analytics" onclick="showView('analytics')">
     <svg viewBox="0 0 24 24"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="5"/><line x1="18" y1="20" x2="18" y2="9"/></svg>
