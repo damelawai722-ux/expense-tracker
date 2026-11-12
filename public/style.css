@@ -812,3 +812,145 @@ button { font-family: inherit; }
   #view-home .chart-box-small { height: 150px; }
   #view-home .chart-box-small canvas { max-height: 150px !important; }
 }
+
+/* =====================================================================
+   Glass buttons (CSS version of the "glass effect"), themed
+   ===================================================================== */
+:root {
+  --glass-bg: rgba(255,255,255,.55);
+  --glass-bg-hover: rgba(255,255,255,.78);
+  --glass-border: rgba(255,255,255,.75);
+  --glass-shine: inset 0 1px 0 rgba(255,255,255,.9), inset 0 -1px 0 rgba(20,32,26,.05);
+  --glass-shadow: 0 6px 16px rgba(20,32,26,.10);
+}
+[data-theme="dark"] {
+  --glass-bg: rgba(255,255,255,.07);
+  --glass-bg-hover: rgba(255,255,255,.13);
+  --glass-border: rgba(255,255,255,.15);
+  --glass-shine: inset 0 1px 0 rgba(255,255,255,.20), inset 0 -1px 0 rgba(0,0,0,.30);
+  --glass-shadow: 0 8px 20px rgba(0,0,0,.38);
+}
+
+/* soft theme-coloured glow behind the page, so the glass has something to refract */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(520px 380px at 10% 6%,  color-mix(in srgb, var(--hero-1) 24%, transparent), transparent 70%),
+    radial-gradient(480px 360px at 92% 38%, color-mix(in srgb, var(--metal) 22%, transparent), transparent 70%),
+    radial-gradient(560px 420px at 28% 100%, color-mix(in srgb, var(--hero-1) 20%, transparent), transparent 70%);
+}
+
+/* ---------- Normal glass buttons ---------- */
+body .icon-btn,
+body .qa-btn,
+body .link-btn,
+body .chip,
+body .month-arrow,
+body .ui-btn,
+body .scan-btn,
+body .search-clear,
+body .theme-opt {
+  background: color-mix(in srgb, var(--metal) 9%, var(--glass-bg));
+  -webkit-backdrop-filter: blur(14px) saturate(1.7);
+  backdrop-filter: blur(14px) saturate(1.7);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shine), var(--glass-shadow);
+  transition: background .2s, transform .12s, box-shadow .2s, border-color .2s;
+}
+body .icon-btn:hover,
+body .qa-btn:hover,
+body .link-btn:hover,
+body .chip:hover,
+body .month-arrow:hover,
+body .ui-btn:hover,
+body .scan-btn:hover,
+body .theme-opt:hover {
+  background: color-mix(in srgb, var(--metal) 14%, var(--glass-bg-hover));
+}
+body .icon-btn:active,
+body .qa-btn:active,
+body .link-btn:active,
+body .chip:active,
+body .month-arrow:active,
+body .ui-btn:active,
+body .scan-btn:active {
+  transform: scale(.97);
+  opacity: 1;
+}
+body .scan-btn { border: 1.5px dashed color-mix(in srgb, var(--metal) 70%, transparent); }
+
+/* ---------- Selected chip / month: tinted with the theme's deep colour ---------- */
+body .chip.active,
+[data-theme="dark"] body .chip.active,
+body .ui-month.current {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--hero-1) 92%, transparent),
+    color-mix(in srgb, var(--hero-2) 92%, transparent));
+  border-color: color-mix(in srgb, var(--metal) 55%, transparent);
+  color: var(--metal-2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 8px 18px rgba(0,0,0,.25);
+}
+body .theme-opt.active { border-color: var(--metal); }
+
+/* ---------- Main action buttons: lime glass (still the only lime on the page) ---------- */
+body .add-btn,
+body .fab,
+body .ui-btn.primary {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--lime) 88%, #fff),
+    color-mix(in srgb, var(--lime) 82%, transparent));
+  color: var(--on-lime);
+  border: 1px solid rgba(255,255,255,.55);
+  -webkit-backdrop-filter: blur(12px) saturate(1.6);
+  backdrop-filter: blur(12px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.7),
+    inset 0 -2px 6px color-mix(in srgb, var(--lime) 60%, #000 0%),
+    0 10px 24px color-mix(in srgb, var(--lime) 40%, transparent);
+}
+body .add-btn:hover,
+body .ui-btn.primary:hover { background: linear-gradient(180deg, color-mix(in srgb, var(--lime) 95%, #fff), color-mix(in srgb, var(--lime) 88%, transparent)); opacity: 1; }
+body .add-btn:active { transform: scale(.98); }
+body .fab { box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 12px 26px color-mix(in srgb, var(--lime) 45%, rgba(0,0,0,.25)); }
+
+/* ---------- Danger buttons: red glass ---------- */
+body .ui-btn.danger {
+  background: color-mix(in srgb, #d62828 14%, var(--glass-bg));
+  border-color: rgba(214,40,40,.45);
+  color: #d62828;
+}
+[data-theme="dark"] body .ui-btn.danger { color: #ff8b8b; }
+
+/* ---------- Pop-ups and the add sheet: frosted backdrop ---------- */
+.ui-overlay, .sheet {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* ---------- Desktop top bar: glass pills on the dark bar ---------- */
+@media (min-width: 1024px) {
+  body .nav-item {
+    border: 1px solid transparent;
+    transition: background .2s, border-color .2s;
+  }
+  body .nav-item:hover {
+    background: rgba(255,255,255,.10);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-color: rgba(255,255,255,.14);
+  }
+  body .nav-item.active {
+    background: rgba(255,255,255,.16);
+    -webkit-backdrop-filter: blur(10px) saturate(1.5);
+    backdrop-filter: blur(10px) saturate(1.5);
+    border-color: color-mix(in srgb, var(--metal) 45%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+  }
+}
+
+/* browsers without backdrop-filter get a more solid fill so text stays readable */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body .icon-btn, body .qa-btn, body .link-btn, body .chip,
+  body .month-arrow, body .ui-btn, body .scan-btn { background: var(--card-bg); }
+}
