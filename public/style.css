@@ -1169,3 +1169,56 @@ body .gt-card { text-shadow: 0 1px 2px rgba(0,0,0,.12); }
 :root:not([data-theme="dark"]) body .ui-panel {
   --pop-bg: rgba(255,255,255,.86);
 }
+
+/* =====================================================================
+   Light mode: bring the glass back, keep the text readable
+   Idea: blur the page behind heavily, so a see-through panel stays legible.
+   ===================================================================== */
+
+/* 1) The page behind the pop-up becomes a soft wash of colour */
+:root:not([data-theme="dark"]) body .ui-overlay {
+  background: color-mix(in srgb, var(--hero-2) 16%, rgba(255,255,255,.12));
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+}
+
+/* 2) The panel: clearly glass again */
+:root:not([data-theme="dark"]) body .ui-panel {
+  --pop-bg: rgba(255,255,255,.38);
+  --pop-border: rgba(255,255,255,.85);
+  --pop-inner: rgba(255,255,255,.35);
+  -webkit-backdrop-filter: blur(26px) saturate(1.8) brightness(1.08);
+  backdrop-filter: blur(26px) saturate(1.8) brightness(1.08);
+}
+:root:not([data-theme="dark"]) body .gt-card {
+  --pop-bg: rgba(255,255,255,.42);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8) brightness(1.08);
+  backdrop-filter: blur(24px) saturate(1.8) brightness(1.08);
+}
+
+/* 3) Cards inside the panel: frosted, not solid white */
+:root:not([data-theme="dark"]) body .ui-panel .sp-row,
+:root:not([data-theme="dark"]) body .ui-panel .sp-exp,
+:root:not([data-theme="dark"]) body .ui-panel .sp-opts,
+:root:not([data-theme="dark"]) body .ui-panel .sp-mchip,
+:root:not([data-theme="dark"]) body .ui-panel .sp-check,
+:root:not([data-theme="dark"]) body .ui-panel .sp-flow:not(.out):not(.in),
+:root:not([data-theme="dark"]) body .ui-panel .sp-empty,
+:root:not([data-theme="dark"]) body .ui-panel .sp-flow.other {
+  background: rgba(255,255,255,.45);
+  border-color: rgba(255,255,255,.8);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+}
+:root:not([data-theme="dark"]) body .ui-panel .sp-row.owing {
+  background: rgba(255,69,58,.16);
+}
+
+/* 4) Text stays dark and bold enough to read on glass */
+:root:not([data-theme="dark"]) body .ui-panel {
+  --sp-ink: #0A140E;
+  --sp-ink-2: #263029;
+}
+:root:not([data-theme="dark"]) body .ui-panel .sp-title,
+:root:not([data-theme="dark"]) body .ui-panel .ui-sec { font-weight: 800; }
