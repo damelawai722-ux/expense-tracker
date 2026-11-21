@@ -1101,27 +1101,34 @@ async function preprocessImage(file) {
   return canvas;
 }
 
-// Color JPEG, longest side 1600px, as base64 (small enough to upload quickly)
+// Color JPEG, longest side 1024px, as base64 (small enough to upload quickly)
 async function resizeForUpload(file) {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(bmp.width * scale);
   canvas.height = Math.round(bmp.height * scale);
   canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 }
 
 // ---------- The two scanners ----------
 async function scanWithAI(file) {
   const image = await resizeForUpload(file);
-  const res = await fetch('/api/scan-receipt', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image, mimeType: 'image/jpeg' })
-  });
-  if (!res.ok) throw new Error('AI scan failed: ' + res.status);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch('/api/scan-receipt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, mimeType: 'image/jpeg' }),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error('AI scan failed: ' + res.status);
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function scanWithTesseract(file) {

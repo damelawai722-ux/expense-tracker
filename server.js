@@ -558,18 +558,30 @@ const scanSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function callGemini(models, body) {
   let lastFailure = null;
   for (const model of models) {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': process.env.GEMINI_API_KEY
-          },
-          body: JSON.stringify(body)
-        }
-      );
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      let r;
+      try {
+        r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': process.env.GEMINI_API_KEY
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          }
+        );
+      } catch (e) {
+        clearTimeout(timer);
+        lastFailure = { status: 0, model };
+        console.error('Gemini timeout/network', model, 'attempt', attempt, e.message);
+        break; // don't retry timeouts on the same model, try the fallback instead
+      }
+      clearTimeout(timer);
       if (r.ok) return r;
 
       const text = await r.text();
@@ -578,7 +590,7 @@ async function callGemini(models, body) {
 
       // Only temporary problems are worth retrying
       if (![429, 500, 503].includes(r.status)) break;
-      if (attempt < 3) await scanSleep(attempt * 1500);
+      if (attempt < 2) await scanSleep(800);
     }
   }
   const err = new Error('Gemini failed');
@@ -592,7 +604,7 @@ app.post('/api/scan-receipt', requireAuth, async (req, res) => {
     if (!image || typeof image !== 'string' || !/^[A-Za-z0-9+/=]+$/.test(image)) {
       return res.status(400).json({ error: 'No valid image received' });
     }
-    if (image.length > 5500000) {
+    if (image.length > 2000000) {
       return res.status(413).json({ error: 'Image is too large' });
     }
     if (!process.env.GEMINI_API_KEY) {
