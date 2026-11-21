@@ -2,48 +2,209 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#8B0000">
+<meta name="theme-color" content="#0F2E20">
 <title>Login - Expense Tracker</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <style>
-body { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:16px; }
-.auth-card { width:100%; max-width:380px; background:var(--card-bg); border:1px solid var(--border);
-  border-radius:14px; padding:28px 24px; }
-.auth-brand { display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:20px; color:var(--text); }
-.auth-brand .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); display:inline-block; }
-.auth-tabs { display:flex; gap:8px; margin-bottom:18px; }
-.auth-tabs button { flex:1; padding:10px; border:1px solid var(--border); background:transparent;
-  color:var(--muted); border-radius:8px; cursor:pointer; font-family:inherit; }
-.auth-tabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-.auth-card input { width:100%; padding:11px 12px; margin-bottom:12px; border:1px solid var(--border);
-  border-radius:8px; background:var(--bg); color:var(--text); font-family:inherit; font-size:14px; }
-.auth-submit { width:100%; padding:12px; border:none; border-radius:8px; background:var(--accent);
-  color:#fff; font-family:inherit; font-weight:600; cursor:pointer; }
-.auth-error { color:var(--danger); font-size:13px; min-height:18px; margin-bottom:8px; }
-.auth-forgot { text-align:center; margin-top:16px; font-size:13px; }
-.auth-forgot a { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
-.auth-forgot[hidden] { display:none; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100dvh; padding: 16px;
+    /* no bottom nav on login, so reset the default body padding */
+    padding-bottom: 16px !important;
+  }
+
+  .login-wrap {
+    width: 100%; max-width: 420px;
+    display: flex; flex-direction: column; gap: 0;
+  }
+
+  /* ---- Hero header (matches the app's hero card) ---- */
+  .login-hero {
+    background:
+      radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--metal) 20%, transparent), transparent 55%),
+      linear-gradient(145deg, var(--hero-1), var(--hero-2));
+    border: 1px solid color-mix(in srgb, var(--metal) 38%, transparent);
+    border-bottom: none;
+    border-radius: 28px 28px 0 0;
+    padding: 32px 28px 28px;
+    text-align: center;
+    color: #fff;
+    box-shadow: 0 14px 34px rgba(0,0,0,.22);
+    position: relative;
+    overflow: hidden;
+  }
+  .login-hero::after {
+    content: '';
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(circle at 30% 110%, color-mix(in srgb, var(--metal) 12%, transparent), transparent 60%);
+  }
+
+  .login-avatar {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    background: linear-gradient(145deg, color-mix(in srgb, var(--metal) 25%, rgba(255,255,255,.12)), rgba(255,255,255,.06));
+    border: 2px solid color-mix(in srgb, var(--metal) 55%, transparent);
+    display: grid; place-items: center;
+    font-size: 32px;
+    margin: 0 auto 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.2);
+    position: relative; z-index: 1;
+  }
+
+  .login-brand {
+    font-size: 22px; font-weight: 800;
+    background: linear-gradient(180deg, #ffffff 15%, var(--metal-2) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    margin-bottom: 4px;
+    position: relative; z-index: 1;
+  }
+  .login-tagline {
+    font-size: 13px; font-weight: 500;
+    color: var(--metal-2); opacity: .75;
+    position: relative; z-index: 1;
+  }
+
+  /* ---- Glass form card ---- */
+  .login-card {
+    background: color-mix(in srgb, var(--metal) 9%, var(--glass-bg));
+    -webkit-backdrop-filter: blur(14px) saturate(1.7);
+    backdrop-filter: blur(14px) saturate(1.7);
+    border: 1px solid var(--glass-border);
+    border-top: 1px solid color-mix(in srgb, var(--metal) 38%, transparent);
+    box-shadow: var(--glass-shine), 0 20px 50px rgba(0,0,0,.18);
+    border-radius: 0 0 28px 28px;
+    padding: 24px 28px 28px;
+  }
+
+  /* ---- Tabs ---- */
+  .login-tabs {
+    display: flex; gap: 6px; margin-bottom: 20px;
+  }
+  .login-tabs button {
+    flex: 1; padding: 12px 10px;
+    font: inherit; font-size: 13px; font-weight: 700;
+    border-radius: 14px; cursor: pointer;
+    transition: background .2s, border-color .2s, color .2s;
+
+    background: color-mix(in srgb, var(--metal) 9%, var(--glass-bg));
+    -webkit-backdrop-filter: blur(10px) saturate(1.5);
+    backdrop-filter: blur(10px) saturate(1.5);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shine);
+    color: var(--muted);
+  }
+  .login-tabs button:hover {
+    background: color-mix(in srgb, var(--metal) 14%, var(--glass-bg-hover));
+  }
+  .login-tabs button.active {
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--hero-1) 92%, transparent),
+      color-mix(in srgb, var(--hero-2) 92%, transparent));
+    border-color: color-mix(in srgb, var(--metal) 55%, transparent);
+    color: var(--metal-2);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 8px 18px rgba(0,0,0,.25);
+  }
+
+  /* ---- Inputs ---- */
+  .login-card input {
+    width: 100%; padding: 14px 16px; margin-bottom: 12px;
+    font: inherit; font-size: 15px; color: var(--text);
+    background: color-mix(in srgb, var(--metal) 5%, var(--glass-bg));
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    box-shadow: var(--glass-shine);
+    transition: border-color .2s, outline .2s;
+  }
+  .login-card input::placeholder { color: var(--muted); }
+  .login-card input:focus {
+    outline: 2px solid var(--bar-on); outline-offset: 0;
+    border-color: transparent;
+  }
+
+  /* ---- Submit button (lime glass, same as "Add expense") ---- */
+  .login-submit {
+    width: 100%; padding: 14px; margin-top: 4px;
+    font: inherit; font-size: 15px; font-weight: 800;
+    border-radius: 16px; cursor: pointer;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--lime) 88%, #fff),
+      color-mix(in srgb, var(--lime) 82%, transparent));
+    color: var(--on-lime);
+    border: 1px solid rgba(255,255,255,.55);
+    -webkit-backdrop-filter: blur(12px) saturate(1.6);
+    backdrop-filter: blur(12px) saturate(1.6);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.7),
+      inset 0 -2px 6px color-mix(in srgb, var(--lime) 60%, #000 0%),
+      0 10px 24px color-mix(in srgb, var(--lime) 40%, transparent);
+    transition: transform .12s, opacity .15s;
+  }
+  .login-submit:hover { opacity: .92; }
+  .login-submit:active { transform: scale(.98); }
+
+  /* ---- Error / forgot ---- */
+  .login-error { color: var(--danger); font-size: 13px; min-height: 18px; margin-bottom: 6px; text-shadow: none; }
+  .login-forgot { text-align: center; margin-top: 18px; font-size: 13px; }
+  .login-forgot a {
+    color: var(--metal);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    font-weight: 600;
+  }
+  .login-forgot[hidden] { display: none; }
+
+  /* ---- Footer ---- */
+  .login-foot {
+    text-align: center; margin-top: 20px;
+    font-size: 12px; color: var(--muted); opacity: .7;
+  }
+
+  /* ---- No backdrop-filter fallback ---- */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .login-card { background: var(--card-bg); }
+    .login-card input { background: var(--bg); }
+    .login-tabs button { background: var(--card-bg); }
+  }
 </style>
 </head>
 <body>
-<div class="auth-card">
-  <div class="auth-brand"><span class="dot"></span> Expense Tracker</div>
-  <div class="auth-tabs">
-    <button id="tab-login" class="active" onclick="setMode('login')">Sign in</button>
-    <button id="tab-register" onclick="setMode('register')">Create account</button>
+<div class="login-wrap">
+
+  <div class="login-hero">
+    <div class="login-avatar">💰</div>
+    <div class="login-brand">Expense Tracker</div>
+    <div class="login-tagline">Track smarter, spend better</div>
   </div>
-  <input type="text" id="username" placeholder="Username" autocomplete="username">
-  <input type="password" id="password" placeholder="Password" autocomplete="current-password">
-  <div id="error" class="auth-error"></div>
-  <button id="submit-btn" class="auth-submit" onclick="submitAuth()">Sign in</button>
-  <div class="auth-forgot" id="forgot-row"><a href="reset.html">Forgot password?</a></div>
+
+  <div class="login-card">
+    <div class="login-tabs">
+      <button id="tab-login" class="active" onclick="setMode('login')">Sign in</button>
+      <button id="tab-register" onclick="setMode('register')">Create account</button>
+    </div>
+
+    <input type="text" id="username" placeholder="Username" autocomplete="username">
+    <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+    <div id="error" class="login-error"></div>
+    <button id="submit-btn" class="login-submit" onclick="submitAuth()">Sign in</button>
+
+    <div class="login-forgot" id="forgot-row"><a href="reset.html">Forgot password?</a></div>
+  </div>
+
+  <div class="login-foot">Expense Tracker by Dame</div>
 </div>
 
 <script>
+// Apply saved theme + colour before paint
 document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
+document.documentElement.setAttribute('data-color', localStorage.getItem('color') || 'forest');
+
 let mode = 'login';
 
 fetch('/api/me').then(r => r.json()).then(d => { if (d.loggedIn) window.location.href = '/'; });
@@ -54,7 +215,7 @@ function setMode(m) {
   document.getElementById('tab-register').classList.toggle('active', m === 'register');
   document.getElementById('submit-btn').textContent = m === 'login' ? 'Sign in' : 'Create account';
   document.getElementById('password').autocomplete = m === 'login' ? 'current-password' : 'new-password';
-  document.getElementById('forgot-row').hidden = m !== 'login';   // only useful when signing in
+  document.getElementById('forgot-row').hidden = m !== 'login';
   document.getElementById('error').textContent = '';
 }
 
