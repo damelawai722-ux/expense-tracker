@@ -560,7 +560,7 @@ async function callGemini(models, body) {
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 12000);
+      const timer = setTimeout(() => controller.abort(), 8000);
       let r;
       try {
         r = await fetch(
@@ -604,7 +604,7 @@ app.post('/api/scan-receipt', requireAuth, async (req, res) => {
     if (!image || typeof image !== 'string' || !/^[A-Za-z0-9+/=]+$/.test(image)) {
       return res.status(400).json({ error: 'No valid image received' });
     }
-    if (image.length > 2000000) {
+    if (image.length > 800000) {
       return res.status(413).json({ error: 'Image is too large' });
     }
     if (!process.env.GEMINI_API_KEY) {
@@ -613,17 +613,11 @@ app.post('/api/scan-receipt', requireAuth, async (req, res) => {
 
     const safeMime = ['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) ? mimeType : 'image/jpeg';
     const models = [
-      process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+      process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
       process.env.GEMINI_FALLBACK_MODEL
     ].filter(Boolean);
 
-    const prompt = `You read photos of receipts, bills and payment screenshots.
-Return ONLY a JSON object with these keys:
-- "amount": number, the final amount the customer paid or must pay (net/total due, after discounts). Use 0 if nothing is payable. No currency symbol.
-- "date": string "YYYY-MM-DD", the date of purchase or payment (not the due date). Dates on Indian receipts are day-first. Use null if not visible.
-- "category": exactly one of ${JSON.stringify(ALLOWED_CATEGORIES)}.
-- "description": short shop or biller name, max 40 characters.
-If the image is not a receipt, return {"amount": null, "date": null, "category": "Other", "description": ""}.`;
+    const prompt = `Extract from this receipt/bill image. JSON only: {"amount":number(total paid,no symbol),"date":"YYYY-MM-DD"(purchase date,Indian=day-first,null if missing),"category":one of ${JSON.stringify(ALLOWED_CATEGORIES)},"description":"shop name max 40 chars"}. Not a receipt? {"amount":null,"date":null,"category":"Other","description":""}`;
 
     let r;
     try {
@@ -634,7 +628,7 @@ If the image is not a receipt, return {"amount": null, "date": null, "category":
             { inline_data: { mime_type: safeMime, data: image } }
           ]
         }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+        generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 100 }
       });
     } catch (e) {
       return res.status(502).json({ error: 'AI service is busy, please try again' });

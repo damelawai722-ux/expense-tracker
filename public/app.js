@@ -1101,22 +1101,22 @@ async function preprocessImage(file) {
   return canvas;
 }
 
-// Color JPEG, longest side 1024px, as base64 (small enough to upload quickly)
+// Color JPEG, longest side 768px, quality 0.5 — plenty for receipt text
 async function resizeForUpload(file) {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+  const scale = Math.min(1, 768 / Math.max(bmp.width, bmp.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(bmp.width * scale);
   canvas.height = Math.round(bmp.height * scale);
   canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+  return canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
 }
 
 // ---------- The two scanners ----------
 async function scanWithAI(file) {
   const image = await resizeForUpload(file);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch('/api/scan-receipt', {
       method: 'POST',
