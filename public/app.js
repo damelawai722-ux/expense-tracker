@@ -1065,10 +1065,11 @@ function parseReceipt(text) {
 }
 
 // ---------- Image helpers ----------
-// Grayscale + contrast stretch, for the Tesseract fallback
+// Grayscale + mild contrast enhancement, for the Tesseract fallback
 async function preprocessImage(file) {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const scale = 1800 / Math.max(bmp.width, bmp.height);
+  // Scale up to ~2200px on longest side for better OCR accuracy (slower but more precise)
+  const scale = 2200 / Math.max(bmp.width, bmp.height);
   const w = Math.round(bmp.width * scale);
   const h = Math.round(bmp.height * scale);
 
@@ -1080,43 +1081,47 @@ async function preprocessImage(file) {
 
   const img = ctx.getImageData(0, 0, w, h);
   const px = img.data;
-  const hist = new Array(256).fill(0);
+
+  // Convert to grayscale
   for (let i = 0; i < px.length; i += 4) {
     const g = Math.round(0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]);
     px[i] = px[i + 1] = px[i + 2] = g;
-    hist[g]++;
   }
 
+  // Mild contrast stretch: clip top/bottom 1% to reduce noise but keep midtones
+  const hist = new Array(256).fill(0);
+  for (let i = 0; i < px.length; i += 4) hist[px[i]]++;
   const total = w * h;
   let lo = 0, hi = 255, acc = 0;
-  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total * 0.02) { lo = v; break; } }
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= total * 0.01) { lo = v; break; } }
   acc = 0;
-  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= total * 0.02) { hi = v; break; } }
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= total * 0.01) { hi = v; break; } }
   const range = Math.max(hi - lo, 1);
   for (let i = 0; i < px.length; i += 4) {
     const v = Math.min(255, Math.max(0, ((px[i] - lo) * 255) / range));
     px[i] = px[i + 1] = px[i + 2] = v;
   }
+
   ctx.putImageData(img, 0, 0);
   return canvas;
 }
 
-// Color JPEG, longest side 768px, quality 0.5 — plenty for receipt text
+// Color JPEG, longest side 1024px, as base64 (small enough to upload quickly)
 async function resizeForUpload(file) {
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const scale = Math.min(1, 768 / Math.max(bmp.width, bmp.height));
+  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(bmp.width * scale);
   canvas.height = Math.round(bmp.height * scale);
   canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+  return canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
 }
 
 // ---------- The two scanners ----------
 async function scanWithAI(file) {
   const image = await resizeForUpload(file);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const res = await fetch('/api/scan-receipt', {
       method: 'POST',
@@ -1135,8 +1140,8 @@ async function scanWithTesseract(file) {
   let worker;
   try {
     const canvas = await preprocessImage(file);
-    worker = await Tesseract.createWorker('eng', 1);
-    await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
+    worker = await Tesseract.createWorker('eng');
+    await worker.setParameters({ tessedit_pageseg_mode: '4', preserve_interword_spaces: '1' });
     const { data } = await worker.recognize(canvas);
     if (SCAN_DEBUG) console.log('--- TESSERACT TEXT ---\n' + data.text);
     return parseReceipt(data.text);
@@ -1203,12 +1208,12 @@ async function handleReceiptFile(input) {
   try {
     let result, source = 'AI';
     try {
-      scanStatus.textContent = 'Reading receipt with AI…';
+      scanStatus.textContent = 'Reading receipt with AI (accurate mode)…';
       result = await scanWithAI(file);
     } catch (err) {
       console.warn(err);
       source = 'Tesseract';
-      scanStatus.textContent = 'AI unavailable, using basic scan…';
+      scanStatus.textContent = 'AI not available — using local OCR (takes longer, more accurate)…';
       result = await scanWithTesseract(file);
     }
     if (SCAN_DEBUG) console.log('--- PARSED (' + source + ') ---', result);

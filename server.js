@@ -7,6 +7,9 @@ const { Pool } = require('pg');
 const { mountSplits, initSplitsDb, avatarDescriptor } = require('./splitsRoutes');
 const { mountAuth, initAuthDb } = require('./authRoutes');
 
+// Load environment variables from .env (so `npm start` works locally too)
+require('dotenv').config();
+
 // ---- Database connection (external Postgres, survives restarts) ----
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -558,9 +561,9 @@ const scanSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function callGemini(models, body) {
   let lastFailure = null;
   for (const model of models) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      const timer = setTimeout(() => controller.abort(), 30000);
       let r;
       try {
         r = await fetch(
@@ -590,7 +593,7 @@ async function callGemini(models, body) {
 
       // Only temporary problems are worth retrying
       if (![429, 500, 503].includes(r.status)) break;
-      if (attempt < 2) await scanSleep(800);
+      if (attempt < 3) await scanSleep(1500);
     }
   }
   const err = new Error('Gemini failed');
@@ -604,7 +607,7 @@ app.post('/api/scan-receipt', requireAuth, async (req, res) => {
     if (!image || typeof image !== 'string' || !/^[A-Za-z0-9+/=]+$/.test(image)) {
       return res.status(400).json({ error: 'No valid image received' });
     }
-    if (image.length > 800000) {
+    if (image.length > 2000000) {
       return res.status(413).json({ error: 'Image is too large' });
     }
     if (!process.env.GEMINI_API_KEY) {
@@ -613,11 +616,17 @@ app.post('/api/scan-receipt', requireAuth, async (req, res) => {
 
     const safeMime = ['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) ? mimeType : 'image/jpeg';
     const models = [
-      process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
-      process.env.GEMINI_FALLBACK_MODEL
+      process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+      process.env.GEMINI_FALLBACK_MODEL || 'gemini-1.5-pro'
     ].filter(Boolean);
 
-    const prompt = `Extract from this receipt/bill image. JSON only: {"amount":number(total paid,no symbol),"date":"YYYY-MM-DD"(purchase date,Indian=day-first,null if missing),"category":one of ${JSON.stringify(ALLOWED_CATEGORIES)},"description":"shop name max 40 chars"}. Not a receipt? {"amount":null,"date":null,"category":"Other","description":""}`;
+    const prompt = `You read photos of receipts, bills and payment screenshots.
+Return ONLY a JSON object with these keys:
+- "amount": number, the final amount the customer paid or must pay (net/total due, after discounts). Use 0 if nothing is payable. No currency symbol.
+- "date": string "YYYY-MM-DD", the date of purchase or payment (not the due date). Dates on Indian receipts are day-first. Use null if not visible.
+- "category": exactly one of ${JSON.stringify(ALLOWED_CATEGORIES)}.
+- "description": short shop or biller name, max 40 characters.
+If the image is not a receipt, return {"amount": null, "date": null, "category": "Other", "description": ""}.`;
 
     let r;
     try {
@@ -628,7 +637,7 @@ app.post('/api/scan-receipt', requireAuth, async (req, res) => {
             { inline_data: { mime_type: safeMime, data: image } }
           ]
         }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0, maxOutputTokens: 100 }
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 }
       });
     } catch (e) {
       return res.status(502).json({ error: 'AI service is busy, please try again' });
